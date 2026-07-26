@@ -1,0 +1,4 @@
+project_id = "sage"
+
+[functions.gemini]
+verify_jwt = true
