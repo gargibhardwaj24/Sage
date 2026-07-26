@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { RefreshCw, WifiOff } from 'lucide-react'
 import RouteBoundary from './RouteBoundary'
 import RouteFallback from './RouteFallback'
@@ -27,6 +27,20 @@ export function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const reminder = useReminders()
+
+  useEffect(() => {
+    const warm = () => {
+      import('@/pages/CalendarPage')
+      import('@/pages/AssistantPage')
+      import('@/pages/MethodsPage')
+      import('@/pages/AnalyticsPage')
+      import('@/pages/WorksheetPage')
+    }
+    const schedule = window.requestIdleCallback ?? ((fn) => setTimeout(fn, 300))
+    const cancel = window.cancelIdleCallback ?? clearTimeout
+    const id = schedule(warm)
+    return () => cancel(id)
+  }, [])
 
   const reportedFailures = useRef(sync?.failures ?? 0)
 
@@ -104,17 +118,14 @@ export function AppShell() {
 
           <RouteBoundary routeKey={location.pathname}>
             <Suspense fallback={<RouteFallback />}>
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.main
-                  key={location.pathname}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                >
-                  <Outlet />
-                </motion.main>
-              </AnimatePresence>
+              <motion.main
+                key={location.pathname}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <Outlet />
+              </motion.main>
             </Suspense>
           </RouteBoundary>
         </div>

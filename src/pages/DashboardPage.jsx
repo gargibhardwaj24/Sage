@@ -7,7 +7,7 @@ import TodayOverview, { UnclaimedTimeCard } from '@/components/dashboard/TodayOv
 import ActionItems from '@/components/dashboard/ActionItems'
 import RecentActivity from '@/components/dashboard/RecentActivity'
 import QuickAdd from '@/components/dashboard/QuickAdd'
-import WeekAhead from '@/components/dashboard/WeekAhead'
+import MethodSuggestions from '@/components/dashboard/MethodSuggestions'
 import { useEvents } from '@/store/EventsContext'
 import { useSettings } from '@/store/SettingsContext'
 import { useEventDialog } from '@/store/DialogContext'
@@ -122,11 +122,11 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:gap-5">
-        <WeekAhead
+        <MethodSuggestions
           events={events}
-          anchor={now}
+          settings={settings}
+          now={now}
           delay={0.19}
-          onSelectDay={() => navigate('/calendar?view=week')}
         />
         <RecentActivity events={events} now={now} delay={0.22} />
       </div>

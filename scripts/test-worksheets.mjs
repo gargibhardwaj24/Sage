@@ -35,6 +35,12 @@ const state = (methodId, patch) => {
   return { sheet, state: { ...SHEET_KINDS[sheet.kind].init(sheet), ...patch } }
 }
 
+const morning = () => {
+  const d = day(0)
+  d.setHours(7, 0, 0, 0)
+  return d
+}
+
 const run = (methodId, patch, ctx = {}) => {
   const { sheet, state: s } = state(methodId, patch)
   return buildDrafts(sheet, s, {
@@ -42,6 +48,7 @@ const run = (methodId, patch, ctx = {}) => {
     methodId,
     events: [],
     settings: SETTINGS,
+    now: morning(),
     ...ctx,
   })
 }
