@@ -1,6 +1,10 @@
-import { useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import { RefreshCw, WifiOff } from 'lucide-react'
+import RouteBoundary from './RouteBoundary'
+import RouteFallback from './RouteFallback'
+import Button from '@/components/ui/Button'
 import AuroraBackground from './AuroraBackground'
 import Sidebar from './Sidebar'
 import MobileNav from './MobileNav'
@@ -17,12 +21,28 @@ import { fmtRelativeDay, fmtTimeShort } from '@/lib/date'
 
 export function AppShell() {
   const location = useLocation()
-  const { events, addEvent, updateEvent, removeEvent, undo } = useEvents()
+  const { events, status, sync, retry, addEvent, updateEvent, removeEvent, undo } = useEvents()
   const dialog = useEventDialog()
   const { toast } = useToast()
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const reminder = useReminders()
+
+  const reportedFailures = useRef(sync?.failures ?? 0)
+
+  useEffect(() => {
+    const failures = sync?.failures ?? 0
+    if (failures === reportedFailures.current) return
+    reportedFailures.current = failures
+
+    toast({
+      tone: 'danger',
+      title: "That didn't save to your account",
+      description: sync?.reverted
+        ? 'The change has been rolled back. Check your connection and try again.'
+        : 'Your last change may not be saved. Reload to see what stuck.',
+    })
+  }, [sync, toast])
 
   const handleSave = (payload) => {
     if (payload.id) {
@@ -68,17 +88,35 @@ export function AppShell() {
             onOpenSettings={() => setSettingsOpen(true)}
           />
 
-          <AnimatePresence mode="wait">
-            <motion.main
-              key={location.pathname}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <Outlet />
-            </motion.main>
-          </AnimatePresence>
+          {status === 'error' ? (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3">
+              <WifiOff size={16} strokeWidth={2} className="shrink-0 text-amber-600 dark:text-amber-400" />
+              <p className="flex-1 text-body-md text-amber-800 dark:text-amber-200">
+                <span className="font-medium">Couldn&apos;t load your calendar.</span> Your events are
+                safe — this is just the connection. Retrying automatically…
+              </p>
+              <Button variant="secondary" size="sm" onClick={retry}>
+                <RefreshCw size={14} strokeWidth={2.2} />
+                Retry now
+              </Button>
+            </div>
+          ) : null}
+
+          <RouteBoundary routeKey={location.pathname}>
+            <Suspense fallback={<RouteFallback />}>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.main
+                  key={location.pathname}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <Outlet />
+                </motion.main>
+              </AnimatePresence>
+            </Suspense>
+          </RouteBoundary>
         </div>
       </div>
 

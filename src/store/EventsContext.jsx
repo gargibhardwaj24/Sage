@@ -1,5 +1,16 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import { storage } from '@/lib/storage'
+import { logDev } from '@/lib/errors'
+import { withRetry } from '@/lib/retry'
 import { uuid } from '@/lib/id'
 import { iso, toDate, addMinutes, durationMinutes } from '@/lib/date'
 import { createSeedEvents } from '@/data/seed'
@@ -105,6 +116,22 @@ function reducer(state, action) {
     case 'replaceAll':
       return commit(action.events.map(normalizeEvent))
 
+    case 'reconcile': {
+      const drop = new Set(action.ids)
+      return {
+        ...state,
+        events: sortEvents([
+          ...state.events.filter((e) => !drop.has(e.id)),
+          ...action.events.map(normalizeEvent),
+        ]),
+      }
+    }
+
+    case 'rollbackAdd': {
+      const drop = new Set(action.ids)
+      return { ...state, events: state.events.filter((e) => !drop.has(e.id)) }
+    }
+
     case 'undo': {
       if (!state.past.length) return state
       const past = [...state.past]
@@ -128,6 +155,8 @@ export function EventsProvider({ children }) {
   }))
 
   const { events, status } = state
+  const [sync, setSync] = useState({ failures: 0, reverted: false })
+  const [reload, setReload] = useState(0)
 
   const eventsRef = useRef(events)
   eventsRef.current = events
@@ -151,46 +180,74 @@ export function EventsProvider({ children }) {
     }
 
     let active = true
+    let retryTimer = null
     dispatch({ type: 'status', status: 'loading' })
 
-    ;(async () => {
-      try {
-        const profile = await fetchProfile(userId).catch(() => null)
+    const load = async () => {
+      const profile = await fetchProfile(userId).catch(() => null)
+      let rows = await withRetry(() => fetchEvents(userId))
 
-        let rows = await fetchEvents(userId)
-
-        if (isDemo && (consumeReseed() || rows.length === 0)) {
-          if (rows.length) await hardDeleteAllEvents(userId)
-          const seeds = createSeedEvents().map(normalizeEvent)
-          rows = await insertEvents(seeds, userId)
-          await markSeeded(userId).catch(() => {})
-          if (active) dispatch({ type: 'hydrate', events: rows })
-          return
-        }
-
-        if (isGuest && !rows.length && !profile?.seeded_at) {
-          const seeds = createSeedEvents().map(normalizeEvent)
-          rows = await insertEvents(seeds, userId)
-          await markSeeded(userId).catch(() => {})
-        }
-
-        if (active) dispatch({ type: 'hydrate', events: rows })
-      } catch {
-        if (active) dispatch({ type: 'status', status: 'error' })
+      if (isDemo && (consumeReseed() || rows.length === 0)) {
+        if (rows.length) await hardDeleteAllEvents(userId)
+        const seeds = createSeedEvents().map(normalizeEvent)
+        rows = await insertEvents(seeds, userId)
+        await markSeeded(userId).catch(() => {})
+        return rows
       }
-    })()
+
+      if (isGuest && !rows.length && !profile?.seeded_at) {
+        const seeds = createSeedEvents().map(normalizeEvent)
+        rows = await insertEvents(seeds, userId)
+        await markSeeded(userId).catch(() => {})
+      }
+
+      return rows
+    }
+
+    load()
+      .then((rows) => {
+        if (active) dispatch({ type: 'hydrate', events: rows })
+      })
+      .catch((error) => {
+        logDev('hydrate', error?.message ?? error)
+        if (!active) return
+        dispatch({ type: 'status', status: 'error' })
+        retryTimer = setTimeout(() => {
+          if (active) setReload((n) => n + 1)
+        }, 4000)
+      })
 
     return () => {
       active = false
+      if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [userId, isGuest, isDemo, authLoading])
+  }, [userId, isGuest, isDemo, authLoading, reload])
 
-  const push = useCallback((work) => {
+  const push = useCallback((work, options = {}) => {
     if (!remoteRef.current) return
     const uid = userIdRef.current
-    Promise.resolve(work(uid)).catch(() => {
-      dispatch({ type: 'status', status: 'error' })
-    })
+
+    Promise.resolve(work(uid))
+      .then((result) => options.onSuccess?.(result))
+      .catch((error) => {
+        logDev('sync', error?.message ?? error)
+        options.rollback?.()
+        setSync((current) => ({ failures: current.failures + 1, reverted: Boolean(options.rollback) }))
+      })
+  }, [])
+
+  const syncAdd = useCallback((optimistic) => {
+    const ids = optimistic.map((e) => e.id)
+
+    return {
+      onSuccess: (rows) => {
+        if (!Array.isArray(rows)) return
+        const known = new Set(ids)
+        const drifted = rows.length !== ids.length || rows.some((r) => !known.has(r.id))
+        if (drifted) dispatch({ type: 'reconcile', ids, events: rows })
+      },
+      rollback: () => dispatch({ type: 'rollbackAdd', ids }),
+    }
   }, [])
 
   const api = useMemo(
@@ -198,13 +255,13 @@ export function EventsProvider({ children }) {
       addEvent: (event) => {
         const normalized = normalizeEvent(event)
         dispatch({ type: 'add', event: normalized })
-        push((uid) => insertEvents([normalized], uid))
+        push((uid) => insertEvents([normalized], uid), syncAdd([normalized]))
         return normalized
       },
       addEvents: (list) => {
         const normalized = list.map(normalizeEvent)
         dispatch({ type: 'addMany', events: normalized })
-        push((uid) => insertEvents(normalized, uid))
+        push((uid) => insertEvents(normalized, uid), syncAdd(normalized))
         return normalized
       },
       updateEvent: (id, patch) => {
@@ -275,12 +332,14 @@ export function EventsProvider({ children }) {
       },
       getEvents: () => eventsRef.current,
     }),
-    [push]
+    [push, syncAdd]
   )
 
+  const retry = useCallback(() => setReload((n) => n + 1), [])
+
   const value = useMemo(
-    () => ({ events, status, canUndo: state.past.length > 0, remote, ...api }),
-    [events, status, state.past.length, remote, api]
+    () => ({ events, status, sync, retry, canUndo: state.past.length > 0, remote, ...api }),
+    [events, status, sync, retry, state.past.length, remote, api]
   )
 
   return <EventsContext.Provider value={value}>{children}</EventsContext.Provider>

@@ -4,6 +4,7 @@ import Button from '@/components/ui/Button'
 import { Field, Input, PasswordInput, Select, Switch } from '@/components/ui/Field'
 import { useSettings } from '@/store/SettingsContext'
 import { useEvents } from '@/store/EventsContext'
+import { useAuth } from '@/store/AuthContext'
 import { useToast } from '@/store/ToastContext'
 import { METHODS, getMethod } from '@/data/methods'
 import { fmtTimeShort, atTime } from '@/lib/date'
@@ -21,9 +22,11 @@ const GEMINI_MODELS = [
 export function SettingsDialog({ open, onClose }) {
   const { settings, update } = useSettings()
   const { resetToSeed, clearAll, undo } = useEvents()
+  const { isDemo, isGuest } = useAuth()
   const { toast } = useToast()
   const envKey = Boolean(import.meta.env?.VITE_GEMINI_API_KEY)
   const activeMethod = getMethod(settings.activeMethod)
+  const sampleData = isDemo || isGuest
 
   return (
     <Modal
@@ -190,23 +193,27 @@ export function SettingsDialog({ open, onClose }) {
             Workspace data
           </p>
           <p className="mt-1.5 text-[11.5px] font-medium leading-relaxed text-muted">
-            These change every event on your calendar. Both actions can be undone.
+            {sampleData
+              ? 'This clears every event on your calendar. It can be undone.'
+              : 'These change every event on your calendar. Both actions can be undone.'}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              size="xs"
-              onClick={() => {
-                resetToSeed()
-                toast({
-                  tone: 'success',
-                  title: 'Demo data restored',
-                  action: { label: 'Undo', onClick: undo },
-                })
-              }}
-            >
-              Reset demo data
-            </Button>
+            {sampleData ? (
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => {
+                  resetToSeed()
+                  toast({
+                    tone: 'success',
+                    title: 'Sample data restored',
+                    action: { label: 'Undo', onClick: undo },
+                  })
+                }}
+              >
+                Reset sample data
+              </Button>
+            ) : null}
             <Button
               variant="danger"
               size="xs"

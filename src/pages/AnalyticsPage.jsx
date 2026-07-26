@@ -233,7 +233,14 @@ export function AnalyticsPage() {
             subtitle={`Weekly score against its running average · last ${range} weeks`}
           />
           <div className="mt-4">
-            <ScoreTrendChart data={data.trend} height={260} />
+            {data.trend.some((w) => w.score > 0) ? (
+              <ScoreTrendChart data={data.trend} height={260} />
+            ) : (
+              <EmptyState
+                title="No scores to chart yet"
+                description="Complete a few events this week and the trend will start building here."
+              />
+            )}
           </div>
         </MotionCard>
       </div>

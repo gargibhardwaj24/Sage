@@ -4,18 +4,20 @@ import AppShell from '@/components/layout/AppShell'
 import DashboardPage from '@/pages/DashboardPage'
 import AuthPage from '@/pages/AuthPage'
 import RouteFallback from '@/components/layout/RouteFallback'
+import RoseLoader from '@/components/ui/RoseLoader'
 import { ThemeProvider } from '@/store/ThemeContext'
 import { AuthProvider, useAuth } from '@/store/AuthContext'
 import { SettingsProvider } from '@/store/SettingsContext'
 import { EventsProvider } from '@/store/EventsContext'
 import { ToastProvider } from '@/store/ToastContext'
 import { DialogProvider } from '@/store/DialogContext'
+import { retryImport } from '@/lib/retryImport'
 
-const CalendarPage = lazy(() => import('@/pages/CalendarPage'))
-const AssistantPage = lazy(() => import('@/pages/AssistantPage'))
-const MethodsPage = lazy(() => import('@/pages/MethodsPage'))
-const WorksheetPage = lazy(() => import('@/pages/WorksheetPage'))
-const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
+const CalendarPage = lazy(() => retryImport(() => import('@/pages/CalendarPage')))
+const AssistantPage = lazy(() => retryImport(() => import('@/pages/AssistantPage')))
+const MethodsPage = lazy(() => retryImport(() => import('@/pages/MethodsPage')))
+const WorksheetPage = lazy(() => retryImport(() => import('@/pages/WorksheetPage')))
+const AnalyticsPage = lazy(() => retryImport(() => import('@/pages/AnalyticsPage')))
 
 const route = (label, Component) => (
   <Suspense fallback={<RouteFallback label={label} />}>
@@ -28,8 +30,11 @@ function Gate() {
 
   if (configured && loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <RouteFallback label="Signing you in" />
+      <div className="flex min-h-screen flex-col items-center justify-center gap-5 p-6">
+        <RoseLoader size={110} />
+        <p className="text-xs font-medium uppercase tracking-widest text-faint">
+          Signing you in
+        </p>
       </div>
     )
   }

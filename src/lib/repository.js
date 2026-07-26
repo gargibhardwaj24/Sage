@@ -48,16 +48,26 @@ const withFreshId = (row) => {
   return rest
 }
 
-export async function fetchEvents(userId) {
-  const { data, error } = await supabase
-    .from('events')
-    .select(COLUMNS)
-    .eq('user_id', userId)
-    .is('deleted_at', null)
-    .order('starts_at', { ascending: true })
+const PAGE_SIZE = 1000
 
-  if (error) throw error
-  return data.map(rowToEvent)
+export async function fetchEvents(userId) {
+  const rows = []
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('events')
+      .select(COLUMNS)
+      .eq('user_id', userId)
+      .is('deleted_at', null)
+      .order('starts_at', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) throw error
+    rows.push(...data)
+    if (data.length < PAGE_SIZE) break
+  }
+
+  return rows.map(rowToEvent)
 }
 
 export async function insertEvents(events, userId) {
@@ -97,14 +107,25 @@ export async function setCompleted(id, completed, userId) {
   return rowToEvent(data)
 }
 
-export async function softDeleteEvents(ids, userId) {
-  const { error } = await supabase
-    .from('events')
-    .update({ deleted_at: new Date().toISOString() })
-    .in('id', ids)
-    .eq('user_id', userId)
+const ID_BATCH = 200
 
-  if (error) throw error
+const chunk = (list, size) => {
+  const out = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
+}
+
+export async function softDeleteEvents(ids, userId) {
+  if (!ids.length) return
+  const stamp = new Date().toISOString()
+  for (const batch of chunk(ids, ID_BATCH)) {
+    const { error } = await supabase
+      .from('events')
+      .update({ deleted_at: stamp })
+      .in('id', batch)
+      .eq('user_id', userId)
+    if (error) throw error
+  }
 }
 
 export async function hardDeleteAllEvents(userId) {
@@ -113,13 +134,15 @@ export async function hardDeleteAllEvents(userId) {
 }
 
 export async function restoreEvents(ids, userId) {
-  const { error } = await supabase
-    .from('events')
-    .update({ deleted_at: null })
-    .in('id', ids)
-    .eq('user_id', userId)
-
-  if (error) throw error
+  if (!ids.length) return
+  for (const batch of chunk(ids, ID_BATCH)) {
+    const { error } = await supabase
+      .from('events')
+      .update({ deleted_at: null })
+      .in('id', batch)
+      .eq('user_id', userId)
+    if (error) throw error
+  }
 }
 
 export async function findOverlapping(start, end, excludeId = null) {

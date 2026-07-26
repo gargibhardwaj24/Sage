@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, Sparkles, TriangleAlert } from 'lucide-react'
+import { ArrowRight, Mail, Sparkles, TriangleAlert } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import { Field, Input, PasswordInput } from '@/components/ui/Field'
 import { useAuth } from '@/store/AuthContext'
@@ -18,6 +18,7 @@ export function AuthPage() {
   const [form, setForm] = useState({ email: '', password: '', displayName: '' })
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null)
+  const [confirmed, setConfirmed] = useState(null)
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
@@ -38,8 +39,51 @@ export function AuthPage() {
     if (mode === 'signin') {
       run('form', () => signIn(form.email.trim(), form.password))
     } else {
-      run('form', () => signUp(form.email.trim(), form.password, form.displayName.trim()))
+      run('form', async () => {
+        await signUp(form.email.trim(), form.password, form.displayName.trim())
+        setConfirmed(form.email.trim())
+      })
     }
+  }
+
+  if (confirmed) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4 py-10">
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="surface-card w-full max-w-md rounded-card p-8 text-center"
+        >
+          <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent">
+            <Mail size={24} strokeWidth={2.2} />
+          </span>
+          <h2 className="mt-5 text-headline tracking-tight text-ink">
+            Check your inbox
+          </h2>
+          <p className="mx-auto mt-3 max-w-sm text-body-md leading-relaxed text-muted">
+            We sent a confirmation link to{' '}
+            <span className="font-medium text-ink">{confirmed}</span>.{' '}
+            Click the link in the email to activate your account.
+          </p>
+          <p className="mt-4 text-label-sm text-faint">
+            Didn't get it? Check your spam folder or try signing up again.
+          </p>
+          <Button
+            variant="primary"
+            size="md"
+            className="mt-6 w-full justify-center"
+            onClick={() => {
+              setConfirmed(null)
+              setMode('signin')
+            }}
+          >
+            Back to sign in
+            <ArrowRight size={16} strokeWidth={2} />
+          </Button>
+        </motion.div>
+      </div>
+    )
   }
 
   return (

@@ -56,7 +56,7 @@ export function DashboardPage() {
   }
 
   const planWeek = () =>
-    navigate('/assistant', {
+    navigate(`/methods`, {
       state: {
         prompt: `Plan my week with ${(method?.name ?? 'deep work').toLowerCase()}`,
         at: Date.now(),
