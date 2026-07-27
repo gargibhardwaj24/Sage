@@ -77,6 +77,19 @@ export async function insertEvents(events, userId) {
   return data.map(rowToEvent)
 }
 
+export async function upsertEvents(events, userId) {
+  const rows = events.map((e) => eventToRow(e, userId)).filter((r) => isUuid(r.id))
+  if (!rows.length) return []
+
+  const { data, error } = await supabase
+    .from('events')
+    .upsert(rows, { onConflict: 'id' })
+    .select(COLUMNS)
+
+  if (error) throw error
+  return data.map(rowToEvent)
+}
+
 export async function updateEvent(id, patch, userId) {
   const row = eventToRow({ ...patch, id }, userId)
   delete row.id

@@ -1,4 +1,4 @@
-import { CATEGORIES } from '@/data/categories'
+import { getAllCategories } from '@/data/categories'
 import { METHODS, getMethod } from '@/data/methods'
 import { addDays, format, startOfDay, toDate } from '@/lib/date'
 import { streaks, weekStats } from '@/lib/analytics'
@@ -37,7 +37,7 @@ export function buildSystemInstruction(events, settings, now) {
   const method = getMethod(settings.activeMethod)
   const snapshot = buildSnapshot(events, now)
 
-  const categoryList = CATEGORIES.map((c) => `${c.id} (${c.name})`).join(', ')
+  const categoryList = getAllCategories().map((c) => `${c.id} (${c.name})`).join(', ')
   const methodList = METHODS.map((m) => `${m.id} (${m.name}, ${m.defaultBlock}min blocks)`).join(', ')
 
   return `You are Sage, a scheduling assistant built into a calendar app. You help exactly one user read, understand and reshape their own calendar.

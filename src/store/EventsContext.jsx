@@ -10,13 +10,15 @@ import {
 } from 'react'
 import { storage } from '@/lib/storage'
 import { logDev } from '@/lib/errors'
-import { withRetry } from '@/lib/retry'
+import { withRetry, withTimeout } from '@/lib/retry'
 import { uuid } from '@/lib/id'
 import { iso, toDate, addMinutes, durationMinutes } from '@/lib/date'
 import { createSeedEvents } from '@/data/seed'
 import { DEFAULT_CATEGORY } from '@/data/categories'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { useAuth } from '@/store/AuthContext'
+import { useHolidays } from '@/hooks/useHolidays'
+import { useSettings } from '@/store/SettingsContext'
 import {
   fetchEvents,
   fetchProfile,
@@ -27,13 +29,28 @@ import {
   setCompleted,
   softDeleteEvents,
   updateEvent as updateEventRow,
+  upsertEvents,
 } from '@/lib/repository'
 import { consumeReseed } from '@/lib/demo'
+import {
+  browserIsOffline,
+  clearLegacyEvents,
+  clearOutbox,
+  enqueue,
+  isOfflineError,
+  readCache,
+  readLegacyEvents,
+  readOutbox,
+  writeCache,
+  writeOutbox,
+} from '@/lib/eventCache'
 
 const EventsContext = createContext(null)
 
 const STORAGE_KEY = 'events.v1'
 const UNDO_DEPTH = 25
+const READ_TIMEOUT_MS = 8000
+const CACHED_READ_TIMEOUT_MS = 4000
 
 export function normalizeEvent(draft) {
   const start = toDate(draft.start)
@@ -57,6 +74,31 @@ export function normalizeEvent(draft) {
 
 const sortEvents = (list) => [...list].sort((a, b) => a.start.localeCompare(b.start))
 
+async function flushOutbox(userId) {
+  const queue = readOutbox(userId)
+  if (!queue.length) return { sent: 0, kept: 0 }
+
+  const kept = []
+  let sent = 0
+
+  for (const op of queue) {
+    try {
+      if (op.kind === 'insert') await upsertEvents(op.events, userId)
+      else if (op.kind === 'update') await updateEventRow(op.id, op.event, userId)
+      else if (op.kind === 'delete') await softDeleteEvents(op.ids, userId)
+      else if (op.kind === 'restore') await restoreEvents(op.ids, userId)
+      else if (op.kind === 'complete') await setCompleted(op.id, op.completed, userId)
+      sent += 1
+    } catch (error) {
+      if (isOfflineError(error)) kept.push(op)
+      else logDev('outbox', `dropped ${op.kind}: ${error?.message ?? error}`)
+    }
+  }
+
+  writeOutbox(userId, kept)
+  return { sent, kept: kept.length }
+}
+
 function loadLocal() {
   const stored = storage.get(STORAGE_KEY)
   if (Array.isArray(stored) && stored.length) return sortEvents(stored.map(normalizeEvent))
@@ -72,7 +114,11 @@ function reducer(state, action) {
 
   switch (action.type) {
     case 'hydrate':
-      return { events: sortEvents(action.events), past: [], status: 'ready' }
+      return {
+        events: sortEvents(action.events),
+        past: [],
+        status: action.status ?? 'ready',
+      }
 
     case 'status':
       return { ...state, status: action.status }
@@ -154,12 +200,22 @@ export function EventsProvider({ children }) {
     status: isSupabaseConfigured ? 'loading' : 'ready',
   }))
 
-  const { events, status } = state
-  const [sync, setSync] = useState({ failures: 0, reverted: false })
-  const [reload, setReload] = useState(0)
+  const { events: rawEvents, status } = state
+  const { settings } = useSettings()
+  const { holidays, source: holidaySource } = useHolidays(settings.showHolidays !== false)
 
-  const eventsRef = useRef(events)
-  eventsRef.current = events
+  const events = useMemo(
+    () => (holidays.length ? sortEvents([...rawEvents, ...holidays]) : rawEvents),
+    [rawEvents, holidays]
+  )
+
+  const [sync, setSync] = useState({ failures: 0, reverted: false, offline: false, queued: 0, flushed: 0 })
+  const [reload, setReload] = useState(0)
+  const [pendingImport, setPendingImport] = useState(null)
+
+  // API methods must only operate on raw user events, not holidays
+  const eventsRef = useRef(rawEvents)
+  eventsRef.current = rawEvents
 
   const userIdRef = useRef(userId)
   userIdRef.current = userId
@@ -169,8 +225,14 @@ export function EventsProvider({ children }) {
 
   useEffect(() => {
     if (isSupabaseConfigured) return
-    storage.set(STORAGE_KEY, events)
-  }, [events])
+    storage.set(STORAGE_KEY, rawEvents)
+  }, [rawEvents])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !userId) return
+    if (status === 'loading') return
+    writeCache(userId, rawEvents)
+  }, [rawEvents, userId, status])
 
   useEffect(() => {
     if (!isSupabaseConfigured || authLoading) return
@@ -181,40 +243,79 @@ export function EventsProvider({ children }) {
 
     let active = true
     let retryTimer = null
-    dispatch({ type: 'status', status: 'loading' })
+
+    const cached = readCache(userId)
+    if (cached?.events?.length) {
+      dispatch({ type: 'hydrate', events: cached.events, status: 'cached' })
+    } else {
+      dispatch({ type: 'status', status: 'loading' })
+    }
+
+    const hasCache = Boolean(cached?.events?.length)
+
+    if (hasCache && browserIsOffline()) {
+      dispatch({ type: 'status', status: 'offline' })
+      const onBack = () => setReload((n) => n + 1)
+      window.addEventListener('online', onBack, { once: true })
+      return () => {
+        active = false
+        window.removeEventListener('online', onBack)
+      }
+    }
 
     const load = async () => {
+      const flushed = await flushOutbox(userId)
+
       const profile = await fetchProfile(userId).catch(() => null)
-      let rows = await withRetry(() => fetchEvents(userId))
+      let rows = await withRetry(
+        () => withTimeout(fetchEvents(userId), hasCache ? CACHED_READ_TIMEOUT_MS : READ_TIMEOUT_MS),
+        hasCache ? 2 : 3,
+        400
+      )
 
       if (isDemo && (consumeReseed() || rows.length === 0)) {
         if (rows.length) await hardDeleteAllEvents(userId)
         const seeds = createSeedEvents().map(normalizeEvent)
         rows = await insertEvents(seeds, userId)
         await markSeeded(userId).catch(() => {})
-        return rows
+        return { rows, flushed, importable: [] }
       }
 
       if (isGuest && !rows.length && !profile?.seeded_at) {
         const seeds = createSeedEvents().map(normalizeEvent)
         rows = await insertEvents(seeds, userId)
         await markSeeded(userId).catch(() => {})
+        return { rows, flushed, importable: [] }
       }
 
-      return rows
+      const importable =
+        rows.length === 0 ? readLegacyEvents().map(normalizeEvent) : []
+
+      return { rows, flushed, importable }
     }
 
     load()
-      .then((rows) => {
-        if (active) dispatch({ type: 'hydrate', events: rows })
+      .then(({ rows, flushed, importable }) => {
+        if (!active) return
+        dispatch({ type: 'hydrate', events: rows, status: 'ready' })
+        setPendingImport(importable.length ? importable : null)
+        setSync((current) => ({
+          ...current,
+          offline: false,
+          queued: flushed.kept,
+          flushed: current.flushed + flushed.sent,
+        }))
       })
       .catch((error) => {
         logDev('hydrate', error?.message ?? error)
         if (!active) return
-        dispatch({ type: 'status', status: 'error' })
+
+        const offline = Boolean(cached?.events?.length)
+        dispatch({ type: 'status', status: offline ? 'offline' : 'error' })
+
         retryTimer = setTimeout(() => {
           if (active) setReload((n) => n + 1)
-        }, 4000)
+        }, offline ? 15000 : 4000)
       })
 
     return () => {
@@ -223,16 +324,37 @@ export function EventsProvider({ children }) {
     }
   }, [userId, isGuest, isDemo, authLoading, reload])
 
+  useEffect(() => {
+    const onOnline = () => setReload((n) => n + 1)
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [])
+
   const push = useCallback((work, options = {}) => {
     if (!remoteRef.current) return
     const uid = userIdRef.current
 
     Promise.resolve(work(uid))
-      .then((result) => options.onSuccess?.(result))
+      .then((result) => {
+        options.onSuccess?.(result)
+        setSync((current) => (current.offline ? { ...current, offline: false } : current))
+      })
       .catch((error) => {
         logDev('sync', error?.message ?? error)
+
+        if (options.op && isOfflineError(error)) {
+          const queued = enqueue(uid, options.op)
+          setSync((current) => ({ ...current, offline: true, queued }))
+          dispatch({ type: 'status', status: 'offline' })
+          return
+        }
+
         options.rollback?.()
-        setSync((current) => ({ failures: current.failures + 1, reverted: Boolean(options.rollback) }))
+        setSync((current) => ({
+          ...current,
+          failures: current.failures + 1,
+          reverted: Boolean(options.rollback),
+        }))
       })
   }, [])
 
@@ -240,6 +362,7 @@ export function EventsProvider({ children }) {
     const ids = optimistic.map((e) => e.id)
 
     return {
+      op: { kind: 'insert', events: optimistic },
       onSuccess: (rows) => {
         if (!Array.isArray(rows)) return
         const known = new Set(ids)
@@ -271,15 +394,15 @@ export function EventsProvider({ children }) {
           ...patch,
           id,
         })
-        push((uid) => updateEventRow(id, next, uid))
+        push((uid) => updateEventRow(id, next, uid), { op: { kind: 'update', id, event: next } })
       },
       removeEvent: (id) => {
         dispatch({ type: 'remove', id })
-        push((uid) => softDeleteEvents([id], uid))
+        push((uid) => softDeleteEvents([id], uid), { op: { kind: 'delete', ids: [id] } })
       },
       removeEvents: (ids) => {
         dispatch({ type: 'removeMany', ids })
-        push((uid) => softDeleteEvents(ids, uid))
+        push((uid) => softDeleteEvents(ids, uid), { op: { kind: 'delete', ids } })
       },
       moveEvent: (id, start) => {
         dispatch({ type: 'move', id, start })
@@ -287,13 +410,15 @@ export function EventsProvider({ children }) {
         if (!current) return
         const length = durationMinutes(current.start, current.end)
         const next = { ...current, start: iso(toDate(start)), end: iso(addMinutes(toDate(start), length)) }
-        push((uid) => updateEventRow(id, next, uid))
+        push((uid) => updateEventRow(id, next, uid), { op: { kind: 'update', id, event: next } })
       },
       toggleComplete: (id) => {
         dispatch({ type: 'toggleComplete', id })
         const current = eventsRef.current.find((e) => e.id === id)
         if (!current) return
-        push((uid) => setCompleted(id, !current.completed, uid))
+        push((uid) => setCompleted(id, !current.completed, uid), {
+          op: { kind: 'complete', id, completed: !current.completed },
+        })
       },
       replaceAll: (list) => dispatch({ type: 'replaceAll', events: list }),
       resetToSeed: () => {
@@ -337,9 +462,53 @@ export function EventsProvider({ children }) {
 
   const retry = useCallback(() => setReload((n) => n + 1), [])
 
+  const importLocalEvents = useCallback(() => {
+    const incoming = pendingImport ?? []
+    if (!incoming.length) return 0
+
+    dispatch({ type: 'addMany', events: incoming })
+    push((uid) => upsertEvents(incoming, uid), {
+      op: { kind: 'insert', events: incoming },
+      rollback: () => dispatch({ type: 'rollbackAdd', ids: incoming.map((e) => e.id) }),
+    })
+
+    clearLegacyEvents()
+    setPendingImport(null)
+    return incoming.length
+  }, [pendingImport, push])
+
+  const dismissImport = useCallback(() => {
+    clearLegacyEvents()
+    setPendingImport(null)
+  }, [])
+
   const value = useMemo(
-    () => ({ events, status, sync, retry, canUndo: state.past.length > 0, remote, ...api }),
-    [events, status, sync, retry, state.past.length, remote, api]
+    () => ({
+      events,
+      status,
+      sync,
+      retry,
+      holidaySource,
+      pendingImport,
+      importLocalEvents,
+      dismissImport,
+      canUndo: state.past.length > 0,
+      remote,
+      ...api,
+    }),
+    [
+      events,
+      status,
+      sync,
+      retry,
+      holidaySource,
+      pendingImport,
+      importLocalEvents,
+      dismissImport,
+      state.past.length,
+      remote,
+      api,
+    ]
   )
 
   return <EventsContext.Provider value={value}>{children}</EventsContext.Provider>

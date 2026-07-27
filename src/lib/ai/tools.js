@@ -1,4 +1,4 @@
-import { CATEGORIES, DEFAULT_CATEGORY } from '@/data/categories'
+import { getAllCategories, DEFAULT_CATEGORY } from '@/data/categories'
 import { METHODS, getMethod } from '@/data/methods'
 import {
   addDays,
@@ -22,7 +22,7 @@ import { peakFocusHour, streaks, weekStats } from '@/lib/analytics'
 import { serializeEvent } from './context'
 import { uid } from '@/lib/id'
 
-const CATEGORY_IDS = CATEGORIES.map((c) => c.id)
+const CATEGORY_IDS = () => getAllCategories().map((c) => c.id)
 const METHOD_IDS = METHODS.map((m) => m.id)
 
 const LOCAL_ISO = "yyyy-MM-dd'T'HH:mm:ss"
@@ -34,7 +34,7 @@ function parseLocal(value) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-export const TOOL_DECLARATIONS = [
+const buildToolDeclarations = () => [
   {
     type: 'function',
     name: 'get_schedule',
@@ -100,7 +100,7 @@ export const TOOL_DECLARATIONS = [
         title: { type: 'string', description: 'Short event title.' },
         start: { type: 'string', description: 'Start, YYYY-MM-DDTHH:mm:ss' },
         durationMinutes: { type: 'number', description: 'Length in minutes. Defaults to 60.' },
-        categoryId: { type: 'string', description: `One of: ${CATEGORY_IDS.join(', ')}` },
+        categoryId: { type: 'string', description: `One of: ${CATEGORY_IDS().join(', ')}` },
         notes: { type: 'string', description: 'Optional note.' },
         reminderMinutes: { type: 'number', description: 'Optional reminder, minutes before start.' },
       },
@@ -161,6 +161,8 @@ export const TOOL_DECLARATIONS = [
     },
   },
 ]
+
+export const getToolDeclarations = buildToolDeclarations
 
 export const READ_TOOLS = new Set([
   'get_schedule',
@@ -285,7 +287,7 @@ export function buildProposal(name, args, ctx) {
 
     const minutes = Math.max(5, Math.round(args.durationMinutes ?? 60))
     const end = addMinutes(start, minutes)
-    const categoryId = CATEGORY_IDS.includes(args.categoryId) ? args.categoryId : DEFAULT_CATEGORY
+    const categoryId = CATEGORY_IDS().includes(args.categoryId) ? args.categoryId : DEFAULT_CATEGORY
 
     const draft = {
       title: args.title?.trim() || 'New block',

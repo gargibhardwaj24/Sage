@@ -1,9 +1,9 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { RefreshCw, WifiOff } from 'lucide-react'
 import RouteBoundary from './RouteBoundary'
 import RouteFallback from './RouteFallback'
+import SyncBanner from './SyncBanner'
 import Button from '@/components/ui/Button'
 import AuroraBackground from './AuroraBackground'
 import Sidebar from './Sidebar'
@@ -17,11 +17,23 @@ import { useEvents } from '@/store/EventsContext'
 import { useEventDialog } from '@/store/DialogContext'
 import { useToast } from '@/store/ToastContext'
 import { useReminders } from '@/hooks/useReminders'
-import { fmtRelativeDay, fmtTimeShort } from '@/lib/date'
+import { addMinutes, durationMinutes, fmtRelativeDay, fmtTimeShort, toDate } from '@/lib/date'
 
 export function AppShell() {
   const location = useLocation()
-  const { events, status, sync, retry, addEvent, updateEvent, removeEvent, undo } = useEvents()
+  const {
+    events,
+    status,
+    sync,
+    retry,
+    pendingImport,
+    importLocalEvents,
+    dismissImport,
+    addEvent,
+    updateEvent,
+    removeEvent,
+    undo,
+  } = useEvents()
   const dialog = useEventDialog()
   const { toast } = useToast()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -78,6 +90,29 @@ export function AppShell() {
     }
   }
 
+  const handleDuplicate = (source) => {
+    const length = durationMinutes(source.start, source.end)
+    const start = toDate(source.end)
+    const created = addEvent({
+      title: source.title,
+      categoryId: source.categoryId,
+      notes: source.notes ?? '',
+      reminderMinutes: source.reminderMinutes ?? null,
+      priority: source.priority ?? null,
+      method: source.method ?? null,
+      start,
+      end: addMinutes(start, length),
+      source: 'user',
+    })
+
+    toast({
+      tone: 'success',
+      title: `Duplicated “${created.title}”`,
+      description: `${fmtRelativeDay(start)} at ${fmtTimeShort(start)}`,
+      action: { label: 'Undo', onClick: undo },
+    })
+  }
+
   const handleDelete = (id) => {
     const target = events.find((e) => e.id === id)
     removeEvent(id)
@@ -102,19 +137,23 @@ export function AppShell() {
             onOpenSettings={() => setSettingsOpen(true)}
           />
 
-          {status === 'error' ? (
-            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3">
-              <WifiOff size={16} strokeWidth={2} className="shrink-0 text-amber-600 dark:text-amber-400" />
-              <p className="flex-1 text-body-md text-amber-800 dark:text-amber-200">
-                <span className="font-medium">Couldn&apos;t load your calendar.</span> Your events are
-                safe — this is just the connection. Retrying automatically…
-              </p>
-              <Button variant="secondary" size="sm" onClick={retry}>
-                <RefreshCw size={14} strokeWidth={2.2} />
-                Retry now
-              </Button>
-            </div>
-          ) : null}
+          <SyncBanner
+            status={status}
+            queued={sync?.queued ?? 0}
+            onRetry={retry}
+            pendingImport={pendingImport}
+            onImport={() => {
+              const n = importLocalEvents()
+              if (n) {
+                toast({
+                  tone: 'success',
+                  title: `Imported ${n} event${n === 1 ? '' : 's'}`,
+                  description: 'They now live in your account and sync across devices.',
+                })
+              }
+            }}
+            onDismissImport={dismissImport}
+          />
 
           <RouteBoundary routeKey={location.pathname}>
             <Suspense fallback={<RouteFallback />}>
@@ -139,6 +178,7 @@ export function AppShell() {
         events={events}
         onSave={handleSave}
         onDelete={handleDelete}
+        onDuplicate={handleDuplicate}
       />
       <ReminderDialog
         event={reminder.active}

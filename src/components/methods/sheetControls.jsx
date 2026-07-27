@@ -1,5 +1,6 @@
 import { Input, Select } from '@/components/ui/Field'
-import { CATEGORIES, categoryHex } from '@/data/categories'
+import { categoryHex } from '@/data/categories'
+import { useCategories } from '@/hooks/useCategories'
 import { useTheme } from '@/store/ThemeContext'
 import { humanDuration } from '@/lib/date'
 import { cn } from '@/lib/cn'
@@ -8,6 +9,7 @@ export const DURATIONS = [15, 20, 25, 30, 45, 60, 90, 120, 150, 180, 240, 300]
 
 export function CategoryPicker({ value, onChange, label, className }) {
   const { isDark } = useTheme()
+  const categories = useCategories()
 
   return (
     <span className="relative flex items-center">
@@ -22,7 +24,7 @@ export function CategoryPicker({ value, onChange, label, className }) {
         onChange={(e) => onChange(e.target.value)}
         className={cn('h-9 w-[7.5rem] pl-7 pr-7 text-label-sm', className)}
       >
-        {CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <option key={c.id} value={c.id}>
             {c.name}
           </option>

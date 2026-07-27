@@ -28,7 +28,7 @@ import {
   totalMinutes,
 } from '@/lib/schedule'
 import { weekStats, streaks, peakFocusHour, scoreLabel } from '@/lib/analytics'
-import { getCategory, FOCUS_CATEGORIES } from '@/data/categories'
+import { getCategory, isFocusCategory } from '@/data/categories'
 import { METHODS, getMethod } from '@/data/methods'
 import { parseWhen, PART_OF_DAY_WINDOW } from './datetime'
 import { classify, detectCategory, detectMethod, extractTitle, INTENTS } from './intents'
@@ -387,7 +387,7 @@ function handleCreate(scope) {
       ...workingWindow(settings),
       now,
       searchDays: 5,
-      preferMornings: FOCUS_CATEGORIES.includes(categoryId),
+      preferMornings: isFocusCategory(categoryId),
     })
     if (!options.length) {
       return reply({
@@ -417,7 +417,7 @@ function handleCreate(scope) {
   const alternatives = suggestAlternatives(events, start, differenceInMinutes(end, start), {
     ...workingWindow(settings, start, end),
     now,
-    preferMornings: FOCUS_CATEGORIES.includes(categoryId),
+    preferMornings: isFocusCategory(categoryId),
   })
 
   return reply({
@@ -441,7 +441,7 @@ function handleCreate(scope) {
 }
 
 function preferredHour(categoryId, settings) {
-  if (FOCUS_CATEGORIES.includes(categoryId)) return Math.max(settings.workStartHour ?? 8, 9)
+  if (isFocusCategory(categoryId)) return Math.max(settings.workStartHour ?? 8, 9)
   if (categoryId === 'fitness') return 7
   if (categoryId === 'admin') return 16
   return 12
@@ -613,13 +613,13 @@ function handleFindSlot(scope) {
     now,
     searchDays,
     limit: 4,
-    preferMornings: FOCUS_CATEGORIES.includes(categoryId),
+    preferMornings: isFocusCategory(categoryId),
   })
   const best = ranked.length ? ranked : slots.slice(0, 4).map((s) => ({ ...s, reason: 'open gap' }))
 
   const peak = peakFocusHour(events, { now })
   const peakNote =
-    peak && FOCUS_CATEGORIES.includes(categoryId)
+    peak && isFocusCategory(categoryId)
       ? ` You historically focus best around ${fmtTimeShort(atTime(now, peak.hour))}, so I've weighted toward that.`
       : ''
 

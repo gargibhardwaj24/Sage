@@ -1,6 +1,8 @@
 import { ShieldAlert } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import Button from '@/components/ui/Button'
+import AreaManager from './AreaManager'
+import { useAreas } from '@/hooks/useAreas'
 import { Field, Input, PasswordInput, Select, Switch } from '@/components/ui/Field'
 import { useSettings } from '@/store/SettingsContext'
 import { useEvents } from '@/store/EventsContext'
@@ -10,6 +12,14 @@ import { METHODS, getMethod } from '@/data/methods'
 import { fmtTimeShort, atTime } from '@/lib/date'
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+
+const HOLIDAY_SOURCE_LABEL = {
+  loading: 'Fetching the latest list from Calendarific…',
+  api: 'Live from the Calendarific API, cached for 30 days',
+  cache: 'From your cached Calendarific data',
+  bundled: 'Using the built-in list (add a Calendarific key for live data)',
+  off: 'National holidays and festivals, shown as all-day markers',
+}
 
 const GEMINI_MODELS = [
   'gemini-3.6-flash',
@@ -21,8 +31,9 @@ const GEMINI_MODELS = [
 
 export function SettingsDialog({ open, onClose }) {
   const { settings, update } = useSettings()
-  const { resetToSeed, clearAll, undo } = useEvents()
+  const { events, holidaySource, resetToSeed, clearAll, undo } = useEvents()
   const { isDemo, isGuest } = useAuth()
+  const { areas, addArea } = useAreas()
   const { toast } = useToast()
   const envKey = Boolean(import.meta.env?.VITE_GEMINI_API_KEY)
   const activeMethod = getMethod(settings.activeMethod)
@@ -172,6 +183,13 @@ export function SettingsDialog({ open, onClose }) {
           )}
         </div>
 
+        <AreaManager
+          areas={areas}
+          events={events}
+          onAdd={addArea}
+          onChange={(next) => update({ customCategories: next })}
+        />
+
         <label className="surface-inset flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-3">
           <span>
             <span className="block text-sm font-medium text-ink">
@@ -185,6 +203,20 @@ export function SettingsDialog({ open, onClose }) {
             checked={settings.remindersEnabled}
             onChange={(v) => update({ remindersEnabled: v })}
             label="Event reminders"
+          />
+        </label>
+
+        <label className="surface-inset flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-3">
+          <span>
+            <span className="block text-sm font-medium text-ink">Indian holidays</span>
+            <span className="mt-0.5 block text-[11px] font-medium text-muted">
+              {HOLIDAY_SOURCE_LABEL[holidaySource] ?? HOLIDAY_SOURCE_LABEL.bundled}
+            </span>
+          </span>
+          <Switch
+            checked={settings.showHolidays !== false}
+            onChange={(v) => update({ showHolidays: v })}
+            label="Indian holidays"
           />
         </label>
 

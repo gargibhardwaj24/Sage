@@ -1,28 +1,105 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { Bell, Check, Sparkles } from 'lucide-react'
 import { categoryHex, categoryInk, getCategory } from '@/data/categories'
 import { useTheme } from '@/store/ThemeContext'
 import { alpha } from '@/lib/color'
-import { durationMinutes, fmtTimeShort, toDate } from '@/lib/date'
+import { addMinutes, durationMinutes, fmtTimeShort, humanDuration, startOfDay, toDate } from '@/lib/date'
 import { offsetFor, PX_PER_MIN } from './constants'
 import { cn } from '@/lib/cn'
 
 const DRAG_THRESHOLD = 5
+const RESIZE_SNAP = 15
+const MIN_EVENT_MINUTES = 15
+const MAX_EVENT_MINUTES = 24 * 60
 
-export function EventBlock({ event, column = 0, columns = 1, onOpen, compact = false }) {
+export function EventBlock({ event, column = 0, columns = 1, onOpen, onResize, compact = false }) {
   const { isDark } = useTheme()
   const pointerStart = useRef(null)
+  const [preview, setPreview] = useState(null)
+
+  const isHoliday = event.source === 'holiday'
+  const continuesBefore = Boolean(event.continuesBefore)
+  const continuesAfter = Boolean(event.continuesAfter)
+  const canResize = !isHoliday && typeof onResize === 'function'
+
+  const sourceEvent = event.realStart
+    ? (() => {
+        const { segId, realStart, realEnd, continuesBefore: _b, continuesAfter: _a, ...rest } = event
+        return { ...rest, start: realStart, end: realEnd }
+      })()
+    : event
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: event.id,
-    data: { event },
+    id: event.segId ?? event.id,
+    data: { event: sourceEvent },
+    disabled: isHoliday || continuesBefore || Boolean(preview),
   })
 
-  const start = toDate(event.start)
-  const minutes = durationMinutes(event.start, event.end)
-  const top = offsetFor(start)
-  const height = Math.max(minutes * PX_PER_MIN, 24)
+  const baseStart = toDate(event.realStart ?? event.start)
+  const baseEnd = toDate(event.realEnd ?? event.end)
+  const start = preview?.start ?? baseStart
+  const end = preview?.end ?? baseEnd
+  const minutes = durationMinutes(start, end)
+
+  const columnStart = startOfDay(toDate(event.start))
+  const columnEnd = addMinutes(columnStart, 24 * 60)
+  const drawStart = start < columnStart ? columnStart : start
+  const drawEnd = end > columnEnd ? columnEnd : end
+
+  const top = offsetFor(drawStart)
+  const height = Math.max(durationMinutes(drawStart, drawEnd) * PX_PER_MIN, 24)
+
+  const beginResize = (edge) => (e) => {
+    if (!canResize || e.button != null && e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const originY = e.clientY
+    let latest = null
+
+    const onMove = (ev) => {
+      const deltaMin =
+        Math.round(((ev.clientY - originY) / PX_PER_MIN) / RESIZE_SNAP) * RESIZE_SNAP
+
+      if (edge === 'top') {
+        let next = addMinutes(baseStart, deltaMin)
+        const latestStart = addMinutes(baseEnd, -MIN_EVENT_MINUTES)
+        const earliestStart = addMinutes(baseEnd, -MAX_EVENT_MINUTES)
+        if (next > latestStart) next = latestStart
+        if (next < earliestStart) next = earliestStart
+        latest = { start: next, end: baseEnd }
+      } else {
+        let next = addMinutes(baseEnd, deltaMin)
+        const earliestEnd = addMinutes(baseStart, MIN_EVENT_MINUTES)
+        const latestEnd = addMinutes(baseStart, MAX_EVENT_MINUTES)
+        if (next < earliestEnd) next = earliestEnd
+        if (next > latestEnd) next = latestEnd
+        latest = { start: baseStart, end: next }
+      }
+
+      setPreview(latest)
+    }
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      setPreview(null)
+
+      if (
+        latest &&
+        (latest.start.getTime() !== baseStart.getTime() ||
+          latest.end.getTime() !== baseEnd.getTime())
+      ) {
+        onResize(event.id, latest.start, latest.end)
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
 
   const hex = categoryHex(event.categoryId, isDark)
   const ink = categoryInk(event.categoryId, isDark)
@@ -38,7 +115,7 @@ export function EventBlock({ event, column = 0, columns = 1, onOpen, compact = f
     borderLeft: `3px solid ${hex}`,
     color: ink,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-    zIndex: isDragging ? 40 : 10 + column,
+    zIndex: isDragging || preview ? 40 : 10 + column,
   }
 
   const showTime = height >= 40
@@ -55,26 +132,30 @@ export function EventBlock({ event, column = 0, columns = 1, onOpen, compact = f
       {...attributes}
       role="button"
       tabIndex={0}
-      aria-label={`${event.title}, ${fmtTimeShort(event.start)}`}
+      data-event-id={event.id}
+      aria-label={`${event.title}, ${fmtTimeShort(baseStart)}`}
       onClick={(e) => {
+        if (isHoliday) return
         const from = pointerStart.current
         if (from) {
           const moved = Math.hypot(e.clientX - from.x, e.clientY - from.y)
           if (moved > DRAG_THRESHOLD) return
         }
-        onOpen?.(event)
+        onOpen?.(sourceEvent)
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onOpen?.(event)
+          if (!isHoliday) onOpen?.(sourceEvent)
         }
       }}
       className={cn(
         'group absolute overflow-hidden rounded-event px-2 py-1 text-left shadow-sm',
-        'cursor-grab touch-none select-none backdrop-blur-sm transition-shadow duration-150',
-        'hover:shadow-[var(--shadow-ambient)] focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]',
+        'touch-none select-none backdrop-blur-sm transition-shadow duration-150',
+        'hover:shadow-[var(--shadow-ambient)]',
+        !isHoliday && 'cursor-grab focus-visible:ring-2 focus-visible:ring-[rgb(var(--accent))]',
         isDragging && 'cursor-grabbing opacity-80 shadow-[var(--shadow-ambient-lg)] ring-2 ring-[rgb(var(--accent))]/60',
+        preview && 'shadow-[var(--shadow-ambient-lg)] ring-2 ring-[rgb(var(--accent))]/70',
         event.completed && 'opacity-55'
       )}
     >
@@ -96,8 +177,11 @@ export function EventBlock({ event, column = 0, columns = 1, onOpen, compact = f
 
       {showTime && !compact ? (
         <p className="mt-0.5 truncate text-[10px] font-semibold opacity-75">
-          {fmtTimeShort(event.start)}
-          {height >= 56 ? ` – ${fmtTimeShort(event.end)}` : ''}
+          {continuesBefore ? '↑ ' : ''}
+          {fmtTimeShort(start)}
+          {height >= 56 || preview || continuesAfter ? ` – ${fmtTimeShort(end)}` : ''}
+          {continuesAfter ? ' ↓' : ''}
+          {preview ? ` · ${humanDuration(minutes)}` : ''}
         </p>
       ) : null}
 
@@ -113,7 +197,36 @@ export function EventBlock({ event, column = 0, columns = 1, onOpen, compact = f
       {height >= 112 && event.notes ? (
         <p className="mt-1.5 line-clamp-2 text-[10px] leading-snug opacity-65">{event.notes}</p>
       ) : null}
+
+      {canResize && !continuesBefore ? (
+        <ResizeHandle edge="top" onPointerDown={beginResize('top')} active={Boolean(preview)} />
+      ) : null}
+      {canResize && !continuesAfter ? (
+        <ResizeHandle edge="bottom" onPointerDown={beginResize('bottom')} active={Boolean(preview)} />
+      ) : null}
     </div>
+  )
+}
+
+function ResizeHandle({ edge, onPointerDown, active }) {
+  return (
+    <span
+      role="presentation"
+      onPointerDown={onPointerDown}
+      onClick={(e) => e.stopPropagation()}
+      title={edge === 'top' ? 'Drag to change the start time' : 'Drag to change the end time'}
+      className={cn(
+        'absolute inset-x-0 z-20 flex h-2.5 cursor-ns-resize touch-none items-center justify-center',
+        edge === 'top' ? '-top-px' : '-bottom-px'
+      )}
+    >
+      <span
+        className={cn(
+          'h-[3px] w-7 rounded-full bg-current transition-opacity duration-150',
+          active ? 'opacity-80' : 'opacity-0 group-hover:opacity-55'
+        )}
+      />
+    </span>
   )
 }
 

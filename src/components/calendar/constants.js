@@ -15,6 +15,17 @@ export function offsetFor(date) {
   return minutes * PX_PER_MIN
 }
 
+export function initialScrollHour(now, anchor, settings = {}, anchorIsToday = false) {
+  const workStart = Number.isFinite(Number(settings.workStartHour))
+    ? Math.min(23, Math.max(0, Number(settings.workStartHour)))
+    : 7
+
+  if (!anchorIsToday) return workStart
+
+  const current = now instanceof Date ? now.getHours() : new Date().getHours()
+  return Math.min(21, Math.max(0, current - 1))
+}
+
 export const dayDroppableId = (key) => `day:${key}`
 export const parseDayDroppable = (id) =>
   typeof id === 'string' && id.startsWith('day:') ? id.slice(4) : null

@@ -1,8 +1,19 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { storage } from '@/lib/storage'
 import { isSupabaseConfigured } from '@/lib/supabase'
 import { fetchProfile, saveSettings } from '@/lib/repository'
 import { useAuth } from '@/store/AuthContext'
+import { setCustomCategories } from '@/data/categories'
+import { resolveDisplayName } from '@/lib/identity'
 
 const SettingsContext = createContext(null)
 
@@ -16,6 +27,8 @@ export const DEFAULT_SETTINGS = {
   aiEnabled: true,
   geminiApiKey: '',
   geminiModel: 'gemini-3.6-flash',
+  showHolidays: true,
+  customCategories: [],
 }
 
 const LOCAL_ONLY = new Set(['geminiApiKey'])
@@ -28,17 +41,6 @@ const stripLocalOnly = (settings) => {
   return out
 }
 
-function nameFromUser(user, profile) {
-  const fromProfile = profile?.display_name?.trim()
-  if (fromProfile && fromProfile !== 'there') return fromProfile
-
-  const meta = user?.user_metadata ?? {}
-  const fromMeta = (meta.display_name || meta.full_name || meta.name || '').trim()
-  if (fromMeta) return fromMeta.split(' ')[0]
-
-  if (user?.email) return user.email.split('@')[0]
-  return ''
-}
 
 export function SettingsProvider({ children }) {
   const { userId, user, isGuest, loading: authLoading } = useAuth()
@@ -69,7 +71,7 @@ export function SettingsProvider({ children }) {
         ...DEFAULT_SETTINGS,
         ...(profile?.settings ?? {}),
         geminiApiKey: current.geminiApiKey,
-        userName: profile?.settings?.userName || nameFromUser(user, profile),
+        userName: profile?.settings?.userName || resolveDisplayName(user, profile),
       }))
       setHydrated(true)
     })()
@@ -78,6 +80,10 @@ export function SettingsProvider({ children }) {
       active = false
     }
   }, [userId, user, authLoading])
+
+  useLayoutEffect(() => {
+    setCustomCategories(settings.customCategories)
+  }, [settings.customCategories])
 
   useEffect(() => {
     if (isSupabaseConfigured) return

@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, CopyPlus, MoonStar, Plus, Trash2 } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import Button from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
-import { CATEGORIES, categoryHex, getCategory } from '@/data/categories'
+import { categoryHex, getCategory } from '@/data/categories'
+import { useCategories } from '@/hooks/useCategories'
+import { useAreas } from '@/hooks/useAreas'
+import AreaForm from '@/components/areas/AreaForm'
 import { useTheme } from '@/store/ThemeContext'
 import { alpha } from '@/lib/color'
-import { addMinutes, durationMinutes, format, fmtRange, toDate } from '@/lib/date'
+import { addMinutes, durationMinutes, format, fmtRange, fmtTimeShort, toDate } from '@/lib/date'
 import { findConflicts } from '@/lib/schedule'
 import { cn } from '@/lib/cn'
+
+const fmtDayShort = (d) => format(toDate(d), 'EEE')
 
 const REMINDER_OPTIONS = [
   { value: '', label: 'No reminder' },
@@ -39,29 +44,38 @@ function buildForm(source) {
 
 const composeDate = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00`)
 
-export function EventDialog({ open, onClose, event, draft, events, onSave, onDelete }) {
+export function EventDialog({ open, onClose, event, draft, events, onSave, onDelete, onDuplicate }) {
   const { isDark } = useTheme()
+  const categories = useCategories()
   const isEdit = Boolean(event?.id)
   const source = event ?? draft ?? {}
 
   const [form, setForm] = useState(() => buildForm(source))
   const [touched, setTouched] = useState(false)
+  const [areaFormOpen, setAreaFormOpen] = useState(false)
+  const { addArea } = useAreas()
 
   useEffect(() => {
     if (open) {
       setForm(buildForm(event ?? draft ?? {}))
       setTouched(false)
+      setAreaFormOpen(false)
     }
   }, [open, event, draft])
 
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
-  const { start, end, invalidRange } = useMemo(() => {
+  const { start, end, crossesMidnight } = useMemo(() => {
     const s = composeDate(form.date, form.startTime)
     let e = composeDate(form.date, form.endTime)
-    const invalid = !(e > s)
-    if (invalid) e = addMinutes(s, 60)
-    return { start: s, end: e, invalidRange: invalid }
+    let overnight = false
+
+    if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime()) && e <= s) {
+      e = addMinutes(e, 24 * 60)
+      overnight = true
+    }
+
+    return { start: s, end: e, crossesMidnight: overnight }
   }, [form.date, form.startTime, form.endTime])
 
   const conflicts = useMemo(() => {
@@ -115,6 +129,20 @@ export function EventDialog({ open, onClose, event, draft, events, onSave, onDel
               Delete
             </Button>
           ) : null}
+          {isEdit && onDuplicate ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Create a copy right after this one"
+              onClick={() => {
+                onDuplicate(event)
+                onClose()
+              }}
+            >
+              <CopyPlus size={15} strokeWidth={2.2} />
+              Duplicate
+            </Button>
+          ) : null}
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
@@ -143,7 +171,7 @@ export function EventDialog({ open, onClose, event, draft, events, onSave, onDel
 
         <Field label="Category">
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map((c) => {
+            {categories.map((c) => {
               const active = form.categoryId === c.id
               const hex = categoryHex(c.id, isDark)
               return (
@@ -165,7 +193,35 @@ export function EventDialog({ open, onClose, event, draft, events, onSave, onDel
                 </button>
               )
             })}
+
+            <button
+              type="button"
+              onClick={() => setAreaFormOpen((v) => !v)}
+              aria-expanded={areaFormOpen}
+              className={cn(
+                'flex items-center gap-1.5 rounded-xl border border-dashed px-3 py-2 text-xs font-medium',
+                'text-muted transition hover:border-[rgb(var(--accent))] hover:text-ink'
+              )}
+            >
+              <Plus size={13} strokeWidth={2.6} />
+              New area
+            </button>
           </div>
+
+          {areaFormOpen ? (
+            <AreaForm
+              className="mt-2.5 border border-[rgb(var(--line))]"
+              onCancel={() => setAreaFormOpen(false)}
+              onCreate={({ name, hex }) => {
+                const result = addArea({ name, hex })
+                if (result.ok) {
+                  setAreaFormOpen(false)
+                  set({ categoryId: result.area.id })
+                }
+                return result
+              }}
+            />
+          ) : null}
         </Field>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -202,14 +258,15 @@ export function EventDialog({ open, onClose, event, draft, events, onSave, onDel
               step="300"
               value={form.endTime}
               onChange={(e) => set({ endTime: e.target.value })}
-              className={invalidRange ? 'border-amber-400' : undefined}
+              className={crossesMidnight ? 'border-[rgb(var(--accent))]' : undefined}
             />
           </Field>
         </div>
 
-        {invalidRange ? (
-          <p className="-mt-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
-            End time must be after the start — defaulting to one hour.
+        {crossesMidnight ? (
+          <p className="-mt-2 flex items-center gap-1.5 text-xs font-semibold text-accent">
+            <MoonStar size={13} strokeWidth={2.4} />
+            Runs past midnight — ends {fmtDayShort(end)} at {fmtTimeShort(end)}.
           </p>
         ) : null}
 

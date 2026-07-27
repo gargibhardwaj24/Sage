@@ -1,7 +1,8 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Columns3, Grid3x3, Rows3 } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Columns3, Grid3x3, Plus, Rows3 } from 'lucide-react'
 import Segmented from '@/components/ui/Segmented'
 import Button from '@/components/ui/Button'
-import { CATEGORIES, categoryHex } from '@/data/categories'
+import { categoryHex } from '@/data/categories'
+import { useCategories } from '@/hooks/useCategories'
 import { useTheme } from '@/store/ThemeContext'
 import { alpha } from '@/lib/color'
 import { fmtDay, fmtMonth, format, weekDays } from '@/lib/date'
@@ -32,9 +33,11 @@ export function CalendarToolbar({
   onToday,
   activeCategories,
   onToggleCategory,
+  onNewArea,
 }) {
   const { isDark } = useTheme()
-  const allActive = activeCategories.size === CATEGORIES.length
+  const categories = useCategories()
+  const allActive = activeCategories.size === categories.length
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b px-1 pb-4">
@@ -56,7 +59,7 @@ export function CalendarToolbar({
       </h2>
 
       <div className="order-last flex w-full items-center gap-1.5 overflow-x-auto no-scrollbar sm:order-none sm:w-auto">
-        {CATEGORIES.map((c) => {
+        {categories.map((c) => {
           const active = activeCategories.has(c.id)
           const hex = categoryHex(c.id, isDark)
           return (
@@ -82,6 +85,20 @@ export function CalendarToolbar({
             </button>
           )
         })}
+        <button
+          type="button"
+          onClick={() => onNewArea?.()}
+          title="Create a new area"
+          aria-label="Create a new area"
+          className={cn(
+            'flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium',
+            'text-muted transition hover:bg-[rgb(var(--card-high))] hover:text-ink'
+          )}
+        >
+          <Plus size={12} strokeWidth={2.8} />
+          Area
+        </button>
+
         {!allActive ? (
           <button
             type="button"

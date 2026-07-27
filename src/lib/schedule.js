@@ -2,8 +2,10 @@ import {
   addDays,
   addMinutes,
   atTime,
+  dayKey,
   differenceInMinutes,
   durationMinutes,
+  iso,
   isSameDay,
   minutesSinceMidnight,
   overlaps,
@@ -11,11 +13,60 @@ import {
   toDate,
 } from '@/lib/date'
 
+export const isAllDay = (event) => Boolean(event?.allDay) || event?.source === 'holiday'
+
+export const isTimed = (event) => !isAllDay(event)
+
 export function eventsOnDay(events, day) {
   const d = toDate(day)
   return events
     .filter((e) => isSameDay(toDate(e.start), d))
     .sort((a, b) => a.start.localeCompare(b.start))
+}
+
+export function timedEventsOnDay(events, day) {
+  return eventsOnDay(events, day).filter(isTimed)
+}
+
+export function allDayEventsOnDay(events, day) {
+  return eventsOnDay(events, day).filter(isAllDay)
+}
+
+export const MAX_EVENT_MINUTES = 24 * 60
+
+export const spansMidnight = (event) =>
+  isTimed(event) && !isSameDay(toDate(event.start), addMinutes(toDate(event.end), -1))
+
+export function daySegments(events, day) {
+  const dayStart = startOfDay(toDate(day))
+  const dayEnd = addMinutes(dayStart, MAX_EVENT_MINUTES)
+  const key = dayKey(dayStart)
+  const out = []
+
+  for (const event of events) {
+    if (!isTimed(event)) continue
+
+    const start = toDate(event.start)
+    const end = toDate(event.end)
+    if (end <= dayStart || start >= dayEnd) continue
+
+    const segStart = start < dayStart ? dayStart : start
+    const segEnd = end > dayEnd ? dayEnd : end
+    if (segEnd <= segStart) continue
+
+    out.push({
+      ...event,
+      start: iso(segStart),
+      end: iso(segEnd),
+      realStart: iso(start),
+      realEnd: iso(end),
+      segId: `${event.id}::${key}`,
+      continuesBefore: start < dayStart,
+      continuesAfter: end > dayEnd,
+    })
+  }
+
+  return out.sort((a, b) => a.start.localeCompare(b.start))
 }
 
 export function eventsInRange(events, start, end) {
@@ -28,7 +79,11 @@ export function eventsInRange(events, start, end) {
 
 export function findConflicts(events, start, end, excludeId = null) {
   return events.filter(
-    (e) => e.id !== excludeId && !e.completed && overlaps(e.start, e.end, start, end)
+    (e) =>
+      e.id !== excludeId &&
+      !e.completed &&
+      isTimed(e) &&
+      overlaps(e.start, e.end, start, end)
   )
 }
 
@@ -43,8 +98,11 @@ export function freeSlots(events, day, options = {}) {
   const from = isSameDay(toDate(day), now) && now > dayStart ? roundUp(now, 15) : dayStart
   if (from >= dayEnd) return []
 
-  const busy = eventsOnDay(events, day)
-    .filter((e) => !e.completed)
+  const spanStart = startOfDay(toDate(day))
+  const spanEnd = addMinutes(spanStart, MAX_EVENT_MINUTES)
+
+  const busy = events
+    .filter((e) => !e.completed && isTimed(e) && overlaps(e.start, e.end, spanStart, spanEnd))
     .map((e) => ({ start: toDate(e.start), end: toDate(e.end) }))
     .sort((a, b) => a.start - b.start)
 
@@ -232,7 +290,11 @@ export function currentEvent(events, now = new Date()) {
 }
 
 export function conflictPairs(events, day) {
-  const list = eventsOnDay(events, day).filter((e) => !e.completed)
+  const spanStart = startOfDay(toDate(day))
+  const spanEnd = addMinutes(spanStart, MAX_EVENT_MINUTES)
+  const list = events
+    .filter((e) => !e.completed && isTimed(e) && overlaps(e.start, e.end, spanStart, spanEnd))
+    .sort((a, b) => a.start.localeCompare(b.start))
   const pairs = []
   for (let i = 0; i < list.length; i += 1) {
     for (let j = i + 1; j < list.length; j += 1) {

@@ -7,7 +7,7 @@ import {
   GeminiError,
   DEFAULT_MODEL,
 } from './gemini'
-import { buildProposal, runReadTool, READ_TOOLS, TOOL_DECLARATIONS } from './tools'
+import { buildProposal, runReadTool, READ_TOOLS, getToolDeclarations } from './tools'
 
 const MAX_ROUNDS = 4
 const MAX_HISTORY_TURNS = 6
@@ -66,7 +66,7 @@ export async function respondRemote(text, ctx, messages = [], options = {}) {
       model: settings.geminiModel || DEFAULT_MODEL,
       systemInstruction,
       input,
-      tools: TOOL_DECLARATIONS,
+      tools: getToolDeclarations(),
       signal: options.signal,
     })
 

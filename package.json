@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Sage — an AI-powered interactive event calendar.",
+  "description": "Sage \u2014 an AI-powered interactive event calendar.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,7 +12,10 @@
     "test:ai": "node --import ./scripts/register-alias.mjs ./scripts/test-engine.mjs",
     "test:sheets": "node --import ./scripts/register-alias.mjs ./scripts/test-worksheets.mjs",
     "test:retry": "node ./scripts/test-retry.mjs",
-    "test": "npm run test:nlp && npm run test:ai && npm run test:sheets && npm run test:retry"
+    "test:features": "node --import ./scripts/register-alias.mjs ./scripts/test-features.mjs",
+    "test": "npm run test:nlp && npm run test:ai && npm run test:sheets && npm run test:retry && npm run test:features && npm run test:cache && npm run test:search",
+    "test:cache": "node --import ./scripts/register-alias.mjs ./scripts/test-cache.mjs",
+    "test:search": "node --import ./scripts/register-alias.mjs ./scripts/test-search.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

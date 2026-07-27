@@ -2,8 +2,12 @@ import { useDroppable } from '@dnd-kit/core'
 import { format, isToday } from 'date-fns'
 import EventBlock from './EventBlock'
 import { dayDroppableId, GRID_HEIGHT, HOUR_HEIGHT, HOURS, offsetFor } from './constants'
-import { layoutDay } from '@/lib/schedule'
+import { allDayEventsOnDay, daySegments, layoutDay } from '@/lib/schedule'
 import { atTime, DAY_START_HOUR, dayKey } from '@/lib/date'
+import { categoryHex, categoryInk } from '@/data/categories'
+import { useTheme } from '@/store/ThemeContext'
+import { useSettings } from '@/store/SettingsContext'
+import { alpha } from '@/lib/color'
 import { cn } from '@/lib/cn'
 
 export function TimeGutter() {
@@ -36,6 +40,69 @@ export function GridLines() {
   )
 }
 
+const clampHour = (value, fallback) => {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.min(24, Math.max(0, n)) : fallback
+}
+
+export function OffHours() {
+  const { settings } = useSettings()
+  const start = clampHour(settings.workStartHour, 7)
+  const end = clampHour(settings.workEndHour, 22)
+
+  const band = 'absolute inset-x-0 bg-[rgb(var(--ink))]/[0.035] dark:bg-[rgb(var(--canvas))]/40'
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+      {start > 0 ? (
+        <div className={band} style={{ top: 0, height: start * HOUR_HEIGHT }} />
+      ) : null}
+      {end < 24 ? (
+        <div className={band} style={{ top: end * HOUR_HEIGHT, height: (24 - end) * HOUR_HEIGHT }} />
+      ) : null}
+    </div>
+  )
+}
+
+export function AllDayRow({ days, events, onOpenEvent }) {
+  const { isDark } = useTheme()
+  const perDay = days.map((day) => allDayEventsOnDay(events, day))
+  if (!perDay.some((list) => list.length)) return null
+
+  return (
+    <div className="flex border-b pr-2">
+      <div className="flex w-12 shrink-0 items-center justify-end pr-2 sm:w-14">
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-faint">All day</span>
+      </div>
+      <div className="flex flex-1">
+        {perDay.map((list, i) => (
+          <div key={days[i].toISOString()} className="min-w-0 flex-1 space-y-1 border-l px-1 py-1.5">
+            {list.map((event) => {
+              const hex = categoryHex(event.categoryId, isDark)
+              return (
+                <button
+                  key={event.id}
+                  type="button"
+                  onClick={() => onOpenEvent?.(event)}
+                  title={event.notes ? `${event.title} — ${event.notes}` : event.title}
+                  className="block w-full truncate rounded-event px-1.5 py-1 text-left text-[10.5px] font-medium leading-tight"
+                  style={{
+                    backgroundColor: alpha(hex, isDark ? 0.22 : 0.14),
+                    color: categoryInk(event.categoryId, isDark),
+                    borderLeft: `3px solid ${hex}`,
+                  }}
+                >
+                  {event.title}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function NowIndicator({ now, showBadge }) {
   const top = offsetFor(now)
   if (top < 0 || top > GRID_HEIGHT) return null
@@ -54,10 +121,10 @@ function NowIndicator({ now, showBadge }) {
   )
 }
 
-export function DayColumn({ day, events, now, onOpenEvent, onCreateAt, className, showNowBadge }) {
+export function DayColumn({ day, events, now, onOpenEvent, onCreateAt, onResizeEvent, className, showNowBadge }) {
   const key = dayKey(day)
   const { setNodeRef, isOver } = useDroppable({ id: dayDroppableId(key), data: { day } })
-  const laidOut = layoutDay(events)
+  const laidOut = layoutDay(daySegments(events, day))
 
   const handleBackgroundClick = (e) => {
     if (e.target !== e.currentTarget) return
@@ -70,6 +137,7 @@ export function DayColumn({ day, events, now, onOpenEvent, onCreateAt, className
     <div
       ref={setNodeRef}
       onClick={handleBackgroundClick}
+      data-day-key={key}
       className={cn(
         'relative flex-1 border-l transition-colors duration-150',
         isOver && 'bg-[rgb(var(--accent))]/[0.07]',
@@ -81,11 +149,12 @@ export function DayColumn({ day, events, now, onOpenEvent, onCreateAt, className
 
       {laidOut.map(({ event, column, columns }) => (
         <EventBlock
-          key={event.id}
+          key={event.segId ?? event.id}
           event={event}
           column={column}
           columns={columns}
           onOpen={onOpenEvent}
+          onResize={onResizeEvent}
         />
       ))}
 

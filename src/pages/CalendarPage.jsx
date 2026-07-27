@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
@@ -21,14 +21,22 @@ import { useEventDialog } from '@/store/DialogContext'
 import { useToast } from '@/store/ToastContext'
 import { useNow } from '@/hooks/useNow'
 import { useIsCompact } from '@/hooks/useMediaQuery'
-import { CATEGORIES } from '@/data/categories'
+import { useCategories } from '@/hooks/useCategories'
+import { useAreas } from '@/hooks/useAreas'
+import { useEventClipboard, toClipboardEntry } from '@/hooks/useEventClipboard'
+import { useEventSearch } from '@/hooks/useEventSearch'
+import EventSearch from '@/components/calendar/EventSearch'
+import AreaForm from '@/components/areas/AreaForm'
 import { conflictPairs } from '@/lib/schedule'
 import {
   addDays,
   addMinutes,
   atTime,
+  durationMinutes,
+  fmtRange,
   fmtRelativeDay,
   fmtTimeShort,
+  humanDuration,
   isSameDay,
   SLOT_MINUTES,
   snapToSlot,
@@ -38,11 +46,9 @@ import {
   weekDays,
 } from '@/lib/date'
 
-const ALL_CATEGORIES = new Set(CATEGORIES.map((c) => c.id))
-
 export function CalendarPage() {
   const [params, setParams] = useSearchParams()
-  const { events, moveEvent, undo } = useEvents()
+  const { events, status, addEvent, moveEvent, updateEvent, undo } = useEvents()
   const dialog = useEventDialog()
   const { toast } = useToast()
   const navigate = useNavigate()
@@ -60,7 +66,12 @@ export function CalendarPage() {
     const parsed = raw ? new Date(`${raw}T00:00:00`) : null
     return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date()
   })
-  const [activeCategories, setActiveCategories] = useState(ALL_CATEGORIES)
+  const categories = useCategories()
+  const { addArea } = useAreas()
+  const clipboard = useEventClipboard()
+  const search = useEventSearch(events, { status, now })
+  const [areaFormOpen, setAreaFormOpen] = useState(false)
+  const [hiddenCategories, setHiddenCategories] = useState(() => new Set())
   const [dragging, setDragging] = useState(null)
 
   const sensors = useSensors(
@@ -69,8 +80,13 @@ export function CalendarPage() {
   )
 
   const visibleEvents = useMemo(
-    () => events.filter((e) => activeCategories.has(e.categoryId)),
-    [events, activeCategories]
+    () => events.filter((e) => !hiddenCategories.has(e.categoryId)),
+    [events, hiddenCategories]
+  )
+
+  const activeCategories = useMemo(
+    () => new Set(categories.map((c) => c.id).filter((id) => !hiddenCategories.has(id))),
+    [categories, hiddenCategories]
   )
 
   const setView = (next) => {
@@ -93,20 +109,21 @@ export function CalendarPage() {
 
   const toggleCategory = (id) => {
     if (id === '__all__') {
-      setActiveCategories(new Set(ALL_CATEGORIES))
+      setHiddenCategories(new Set())
       return
     }
-    setActiveCategories((current) => {
+    setHiddenCategories((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
       else next.add(id)
-      return next.size ? next : new Set(ALL_CATEGORIES)
+      return next.size >= categories.length ? new Set() : next
     })
   }
 
   const handleDragEnd = ({ active, over, delta }) => {
     setDragging(null)
-    const event = events.find((e) => e.id === active.id)
+    const baseId = String(active.id).split('::')[0]
+    const event = events.find((e) => e.id === baseId)
     if (!event) return
 
     const originalStart = toDate(event.start)
@@ -137,6 +154,103 @@ export function CalendarPage() {
     })
   }
 
+  const handleResizeEvent = useCallback(
+    (id, start, end) => {
+      const event = events.find((e) => e.id === id)
+      if (!event) return
+
+      updateEvent(id, { start, end })
+      toast({
+        tone: 'success',
+        title: `Resized "${event.title}"`,
+        description: `${fmtRange(start, end)} · ${humanDuration(durationMinutes(start, end))}`,
+        action: { label: 'Undo', onClick: undo },
+      })
+    },
+    [events, updateEvent, toast, undo]
+  )
+
+  const pasteEntry = useCallback(
+    (entry, start) => {
+      if (!entry || !start) return
+      const end = addMinutes(start, entry.minutes)
+
+      addEvent({
+        title: entry.title,
+        categoryId: entry.categoryId,
+        notes: entry.notes,
+        reminderMinutes: entry.reminderMinutes,
+        priority: entry.priority,
+        method: entry.method,
+        start,
+        end,
+        source: 'user',
+      })
+
+      toast({
+        tone: 'success',
+        title: `Pasted “${entry.title}”`,
+        description: `${fmtRelativeDay(start)} at ${fmtTimeShort(start)}`,
+        action: { label: 'Undo', onClick: undo },
+      })
+    },
+    [addEvent, toast, undo]
+  )
+
+  const duplicateEvent = useCallback(
+    (event) => {
+      if (!event) return
+      const entry = toClipboardEntry(event)
+      pasteEntry(entry, toDate(event.end))
+    },
+    [pasteEntry]
+  )
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+
+      const target = e.target
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+        return
+      }
+      if (document.querySelector('[role="dialog"]')) return
+
+      const key = e.key.toLowerCase()
+
+      if (key === 'c') {
+        const id = clipboard.eventIdAtCursor()
+        const found = id ? events.find((ev) => ev.id === id) : null
+        if (!found || found.source === 'holiday') return
+        e.preventDefault()
+        clipboard.copy(found)
+        toast({ tone: 'success', title: `Copied “${found.title}”`, description: 'Point at a slot and press Ctrl+V.' })
+        return
+      }
+
+      if (key === 'v') {
+        if (!clipboard.entry) return
+        e.preventDefault()
+        const slot = clipboard.slotAtCursor()
+        const fallback = addMinutes(startOfDay(anchor), clipboard.entry.clockMinutes)
+        pasteEntry(clipboard.entry, slot ?? fallback)
+        return
+      }
+
+      if (key === 'd') {
+        const id = clipboard.eventIdAtCursor()
+        const found = id ? events.find((ev) => ev.id === id) : null
+        if (!found || found.source === 'holiday') return
+        e.preventDefault()
+        duplicateEvent(found)
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [clipboard, events, anchor, pasteEntry, duplicateEvent, toast])
+
   const openCreateAt = (start) =>
     dialog.openNew({ start, end: addMinutes(start, 60), categoryId: 'deep-work' })
 
@@ -156,8 +270,27 @@ export function CalendarPage() {
     [daysInScope, visibleEvents]
   )
 
+  const openSearchResult = (event) => {
+    setAnchor(toDate(event.start))
+    search.reset()
+    if (event.source !== 'holiday') dialog.openEdit(event)
+  }
+
   return (
     <div className="flex flex-col gap-4">
+      <EventSearch
+        query={search.query}
+        onQueryChange={search.setQuery}
+        categoryId={search.categoryId}
+        onCategoryChange={search.setCategoryId}
+        results={search.results}
+        searching={search.searching}
+        active={search.active}
+        onSelect={openSearchResult}
+        onReset={search.reset}
+        now={now}
+      />
+
       {clashes.length ? (
         <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-2.5">
           <AlertTriangle size={15} className="shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2.6} />
@@ -178,7 +311,27 @@ export function CalendarPage() {
           onToday={() => setAnchor(view === 'month' ? startOfMonth(new Date()) : new Date())}
           activeCategories={activeCategories}
           onToggleCategory={toggleCategory}
+          onNewArea={() => setAreaFormOpen((v) => !v)}
         />
+
+        {areaFormOpen ? (
+          <AreaForm
+            className="mt-3 border border-[rgb(var(--line))]"
+            onCancel={() => setAreaFormOpen(false)}
+            onCreate={({ name, hex }) => {
+              const result = addArea({ name, hex })
+              if (result.ok) {
+                setAreaFormOpen(false)
+                toast({
+                  tone: 'success',
+                  title: `“${result.area.name}” added`,
+                  description: 'Pick it on any event, or filter by it here.',
+                })
+              }
+              return result
+            }}
+          />
+        ) : null}
 
         <DndContext
           sensors={sensors}
@@ -195,6 +348,7 @@ export function CalendarPage() {
                 onOpenEvent={dialog.openEdit}
                 onCreateAt={openCreateAt}
                 onSelectDay={selectDay}
+              onResizeEvent={handleResizeEvent}
               />
             ) : null}
             {view === 'day' ? (
@@ -204,6 +358,7 @@ export function CalendarPage() {
                 now={now}
                 onOpenEvent={dialog.openEdit}
                 onCreateAt={openCreateAt}
+              onResizeEvent={handleResizeEvent}
               />
             ) : null}
             {view === 'month' ? (

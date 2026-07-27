@@ -12,7 +12,7 @@ import {
   WEEK_OPTS,
 } from '@/lib/date'
 import { conflictPairs, totalMinutes } from '@/lib/schedule'
-import { FOCUS_CATEGORIES, getCategory } from '@/data/categories'
+import { isFocusCategory, getCategory } from '@/data/categories'
 import { METHODS } from '@/data/methods'
 import { peakFocusHour, streaks, weekStats } from '@/lib/analytics'
 
@@ -23,7 +23,7 @@ export function peakFocusDay(events, { weeks = 6, now = new Date() } = {}) {
   const totals = Array(7).fill(0)
 
   for (const e of events) {
-    if (!e.completed || !FOCUS_CATEGORIES.includes(e.categoryId)) continue
+    if (!e.completed || !isFocusCategory(e.categoryId)) continue
     const start = toDate(e.start)
     if (start < since) continue
     totals[start.getDay()] += durationMinutes(e.start, e.end)
@@ -314,7 +314,7 @@ export function recentSessions(events, { limit = 4, now = new Date() } = {}) {
       minutes: durationMinutes(e.start, e.end),
       categoryId: e.categoryId,
       categoryName: getCategory(e.categoryId).name,
-      isFocus: FOCUS_CATEGORIES.includes(e.categoryId),
+      isFocus: isFocusCategory(e.categoryId),
       when: fmtRelativeDay(e.start),
     }))
 }

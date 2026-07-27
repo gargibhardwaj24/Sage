@@ -3,7 +3,8 @@ import { AlertTriangle, Plus, Zap } from 'lucide-react'
 import { MotionCard, CardHeader } from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Field'
-import { CATEGORIES, categoryHex } from '@/data/categories'
+import { categoryHex } from '@/data/categories'
+import { useCategories } from '@/hooks/useCategories'
 import { useTheme } from '@/store/ThemeContext'
 import { alpha } from '@/lib/color'
 import { addMinutes, format, snapToSlot } from '@/lib/date'
@@ -20,6 +21,7 @@ const DURATIONS = [
 
 export function QuickAdd({ events, onAdd, delay = 0 }) {
   const { isDark } = useTheme()
+  const categories = useCategories()
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('deep-work')
   const [duration, setDuration] = useState(60)
@@ -51,7 +53,7 @@ export function QuickAdd({ events, onAdd, delay = 0 }) {
         />
 
         <div className="flex flex-wrap gap-1.5">
-          {CATEGORIES.map((c) => {
+          {categories.map((c) => {
             const active = categoryId === c.id
             const hex = categoryHex(c.id, isDark)
             return (

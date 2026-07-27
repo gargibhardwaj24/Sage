@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { demoCredentials, isDemoConfigured, isDemoUser, requestReseed } from '@/lib/demo'
 import { hardDeleteAllEvents } from '@/lib/repository'
+import { clearCache, clearOutbox } from '@/lib/eventCache'
 
 const AuthContext = createContext(null)
 
@@ -72,6 +73,10 @@ export function AuthProvider({ children }) {
     const current = session?.user
     if (isDemoUser(current)) {
       await hardDeleteAllEvents(current.id).catch(() => {})
+    }
+    if (current?.id) {
+      clearCache(current.id)
+      clearOutbox(current.id)
     }
     await supabase.auth.signOut()
   }, [session])

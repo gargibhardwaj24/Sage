@@ -20,8 +20,8 @@ import {
 
 export const WEEK_OPTS = { weekStartsOn: 1 }
 
-export const DAY_START_HOUR = 6
-export const DAY_END_HOUR = 23
+export const DAY_START_HOUR = 0
+export const DAY_END_HOUR = 24
 export const SLOT_MINUTES = 30
 export const HOURS_IN_VIEW = DAY_END_HOUR - DAY_START_HOUR
 

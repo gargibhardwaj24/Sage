@@ -11,7 +11,7 @@ import {
   weekDays,
   WEEK_OPTS,
 } from '@/lib/date'
-import { CATEGORIES, FOCUS_CATEGORIES, getCategory } from '@/data/categories'
+import { getAllCategories, isFocusCategory, getCategory } from '@/data/categories'
 
 export const SCORE_WEIGHTS = [
   {
@@ -49,6 +49,7 @@ export function weekStats(events, anchor, options = {}) {
   const days = weekDays(start)
 
   const inWeek = events.filter((e) => {
+    if (e.source === 'holiday') return false
     const s = toDate(e.start)
     return s >= start && s <= end
   })
@@ -59,7 +60,7 @@ export function weekStats(events, anchor, options = {}) {
   const plannedMinutes = inWeek.reduce((n, e) => n + durationMinutes(e.start, e.end), 0)
   const completedMinutes = completed.reduce((n, e) => n + durationMinutes(e.start, e.end), 0)
   const focusMinutes = completed
-    .filter((e) => FOCUS_CATEGORIES.includes(e.categoryId))
+    .filter((e) => isFocusCategory(e.categoryId))
     .reduce((n, e) => n + durationMinutes(e.start, e.end), 0)
   const recoveryMinutes = completed
     .filter((e) => e.categoryId === 'fitness' || e.categoryId === 'personal')
@@ -79,7 +80,7 @@ export function weekStats(events, anchor, options = {}) {
     100 * SCORE_WEIGHTS.reduce((sum, w) => sum + w.weight * (components[w.key] ?? 0), 0)
   )
 
-  const byCategory = CATEGORIES.map((c) => {
+  const byCategory = getAllCategories().map((c) => {
     const list = inWeek.filter((e) => e.categoryId === c.id)
     return {
       id: c.id,
@@ -94,10 +95,10 @@ export function weekStats(events, anchor, options = {}) {
     const list = inWeek.filter((e) => isSameDay(toDate(e.start), day))
     const doneList = list.filter((e) => e.completed)
     const focus = doneList
-      .filter((e) => FOCUS_CATEGORIES.includes(e.categoryId))
+      .filter((e) => isFocusCategory(e.categoryId))
       .reduce((n, e) => n + durationMinutes(e.start, e.end), 0)
     const other = doneList
-      .filter((e) => !FOCUS_CATEGORIES.includes(e.categoryId))
+      .filter((e) => !isFocusCategory(e.categoryId))
       .reduce((n, e) => n + durationMinutes(e.start, e.end), 0)
     return {
       day,
@@ -145,7 +146,9 @@ export function scoreTrend(events, count = 8, options = {}) {
 }
 
 export function streaks(events, now = new Date()) {
-  const done = new Set(events.filter((e) => e.completed).map((e) => dayKey(e.start)))
+  const done = new Set(
+    events.filter((e) => e.completed && e.source !== 'holiday').map((e) => dayKey(e.start))
+  )
   if (!done.size) return { current: 0, longest: 0, lastActive: null }
 
   let current = 0
@@ -176,7 +179,7 @@ export function focusByHour(events, options = {}) {
   const buckets = Array.from({ length: 24 }, (_, hour) => ({ hour, minutes: 0 }))
 
   for (const e of events) {
-    if (!e.completed || !FOCUS_CATEGORIES.includes(e.categoryId)) continue
+    if (e.source === 'holiday' || !e.completed || !isFocusCategory(e.categoryId)) continue
     const start = toDate(e.start)
     if (start < since) continue
     buckets[start.getHours()].minutes += durationMinutes(e.start, e.end)

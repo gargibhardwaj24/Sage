@@ -1,22 +1,23 @@
 import { useEffect, useRef } from 'react'
 import { Clock3, Sparkles } from 'lucide-react'
-import { DayColumn, GridLines, TimeGutter } from './TimeGrid'
-import { GRID_HEIGHT, HOUR_HEIGHT } from './constants'
+import { AllDayRow, DayColumn, GridLines, OffHours, TimeGutter } from './TimeGrid'
+import { GRID_HEIGHT, HOUR_HEIGHT, initialScrollHour } from './constants'
 import { eventsOnDay, freeSlots, totalMinutes } from '@/lib/schedule'
-import { DAY_START_HOUR, fmtDayLong, fmtRange, humanDuration, isToday } from '@/lib/date'
+import { fmtDayLong, fmtRange, humanDuration, isToday } from '@/lib/date'
 import { useSettings } from '@/store/SettingsContext'
 import Button from '@/components/ui/Button'
 
-export function DayView({ anchor, events, now, onOpenEvent, onCreateAt }) {
+export function DayView({ anchor, events, now, onOpenEvent, onCreateAt, onResizeEvent }) {
   const { settings } = useSettings()
   const scroller = useRef(null)
   const dayEvents = eventsOnDay(events, anchor)
 
+  const focusHour = initialScrollHour(now, anchor, settings, isToday(anchor))
+
   useEffect(() => {
     if (!scroller.current) return
-    const focusHour = Math.max(DAY_START_HOUR, Math.min(now.getHours() - 1, 20))
-    scroller.current.scrollTop = (focusHour - DAY_START_HOUR) * HOUR_HEIGHT
-  }, [now, anchor])
+    scroller.current.scrollTop = focusHour * HOUR_HEIGHT
+  }, [focusHour])
 
   const gaps = freeSlots(events, anchor, {
     workStartHour: settings.workStartHour,
@@ -48,17 +49,21 @@ export function DayView({ anchor, events, now, onOpenEvent, onCreateAt }) {
           </div>
         </div>
 
+        <AllDayRow days={[anchor]} events={dayEvents} onOpenEvent={onOpenEvent} />
+
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex pr-2" style={{ height: GRID_HEIGHT }}>
             <TimeGutter />
             <div className="relative flex flex-1">
+              <OffHours />
               <GridLines />
               <DayColumn
                 day={anchor}
-                events={dayEvents}
+                events={events}
                 now={now}
                 onOpenEvent={onOpenEvent}
                 onCreateAt={onCreateAt}
+                onResizeEvent={onResizeEvent}
                 showNowBadge
               />
             </div>
