@@ -2,6 +2,7 @@ import { getCategory } from '@/data/categories'
 import { differenceInCalendarDays, toDate } from '@/lib/date'
 
 export const ALL_CATEGORIES = 'all'
+export const DEFAULT_LIMIT = 60
 
 const norm = (value) => String(value ?? '').toLowerCase()
 
@@ -32,7 +33,7 @@ export function scoreEvent(event, terms, now) {
 }
 
 export function searchEvents(events, query, options = {}) {
-  const { categoryId = ALL_CATEGORIES, limit = 60, now = new Date() } = options
+  const { categoryId = ALL_CATEGORIES, limit = DEFAULT_LIMIT, now = new Date() } = options
   const terms = tokenize(query)
   if (!terms.length) return []
 

@@ -61,11 +61,17 @@ export function CalendarPage() {
     : isCompact
       ? 'day'
       : 'week'
+  const dateParam = params.get('date')
   const [anchor, setAnchor] = useState(() => {
-    const raw = params.get('date')
-    const parsed = raw ? new Date(`${raw}T00:00:00`) : null
+    const parsed = dateParam ? new Date(`${dateParam}T00:00:00`) : null
     return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date()
   })
+
+  useEffect(() => {
+    if (!dateParam) return
+    const parsed = new Date(`${dateParam}T00:00:00`)
+    if (!Number.isNaN(parsed.getTime())) setAnchor(parsed)
+  }, [dateParam])
   const categories = useCategories()
   const { addArea } = useAreas()
   const clipboard = useEventClipboard()
