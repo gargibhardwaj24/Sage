@@ -1,4 +1,4 @@
-import { ShieldAlert } from 'lucide-react'
+import { LogOut, ShieldAlert } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import Button from '@/components/ui/Button'
 import AreaManager from './AreaManager'
@@ -9,6 +9,7 @@ import { useEvents } from '@/store/EventsContext'
 import { useAuth } from '@/store/AuthContext'
 import { useToast } from '@/store/ToastContext'
 import { METHODS, getMethod } from '@/data/methods'
+import { fullNameFromUser, nameFromEmail } from '@/lib/identity'
 import { fmtTimeShort, atTime } from '@/lib/date'
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
@@ -32,12 +33,22 @@ const GEMINI_MODELS = [
 export function SettingsDialog({ open, onClose }) {
   const { settings, update } = useSettings()
   const { events, holidaySource, resetToSeed, clearAll, undo } = useEvents()
-  const { isDemo, isGuest } = useAuth()
+  const { isDemo, isGuest, configured, user, signOut } = useAuth()
   const { areas, addArea } = useAreas()
   const { toast } = useToast()
   const envKey = Boolean(import.meta.env?.VITE_GEMINI_API_KEY)
   const activeMethod = getMethod(settings.activeMethod)
   const sampleData = isDemo || isGuest
+
+  const accountName = isGuest
+    ? 'Guest session'
+    : fullNameFromUser(user) || nameFromEmail(user?.email) || 'Signed in'
+
+  const accountDetail = isGuest
+    ? 'Nothing here is tied to an account yet'
+    : isDemo
+      ? 'Demo account · sample data'
+      : (user?.email ?? '')
 
   return (
     <Modal
@@ -52,6 +63,28 @@ export function SettingsDialog({ open, onClose }) {
       }
     >
       <div className="space-y-4">
+        {configured ? (
+          <div className="surface-inset flex items-center justify-between gap-3 rounded-xl px-4 py-3">
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-label-sm font-semibold uppercase">
+                {accountName.charAt(0)}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium text-ink">{accountName}</span>
+                {accountDetail ? (
+                  <span className="mt-0.5 block truncate text-[11px] font-medium text-muted">
+                    {accountDetail}
+                  </span>
+                ) : null}
+              </span>
+            </span>
+            <Button variant="secondary" size="xs" onClick={signOut} className="shrink-0">
+              <LogOut size={13} strokeWidth={2} />
+              {sampleData ? 'End demo' : 'Sign out'}
+            </Button>
+          </div>
+        ) : null}
+
         <Field label="Your name" htmlFor="set-name">
           <Input
             id="set-name"

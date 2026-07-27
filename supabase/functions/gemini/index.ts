@@ -5,6 +5,22 @@ const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:51
   .map((o) => o.trim())
   .filter(Boolean)
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function matchOrigin(origin: string | null) {
+  if (!origin) return null
+
+  for (const pattern of ALLOWED_ORIGINS) {
+    if (pattern === origin) return origin
+    if (!pattern.includes('*')) continue
+
+    const rx = new RegExp(`^${pattern.split('*').map(escapeRegex).join('[^.]*')}$`)
+    if (rx.test(origin)) return origin
+  }
+
+  return null
+}
+
 const ALLOWED_MODELS = new Set([
   'gemini-3.6-flash',
   'gemini-3.5-flash',
@@ -14,7 +30,7 @@ const ALLOWED_MODELS = new Set([
 ])
 
 function corsHeaders(origin: string | null) {
-  const allowed = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  const allowed = matchOrigin(origin) ?? ALLOWED_ORIGINS[0]
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Headers': 'authorization, content-type, apikey',

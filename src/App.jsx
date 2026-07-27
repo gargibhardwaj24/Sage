@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from '@/components/layout/AppShell'
-import DashboardPage from '@/pages/DashboardPage'
+import CalendarPage from '@/pages/CalendarPage'
 import AuthPage from '@/pages/AuthPage'
 import RouteFallback from '@/components/layout/RouteFallback'
 import RoseLoader from '@/components/ui/RoseLoader'
@@ -13,7 +13,7 @@ import { ToastProvider } from '@/store/ToastContext'
 import { DialogProvider } from '@/store/DialogContext'
 import { retryImport } from '@/lib/retryImport'
 
-const CalendarPage = lazy(() => retryImport(() => import('@/pages/CalendarPage')))
+const DashboardPage = lazy(() => retryImport(() => import('@/pages/DashboardPage')))
 const AssistantPage = lazy(() => retryImport(() => import('@/pages/AssistantPage')))
 const MethodsPage = lazy(() => retryImport(() => import('@/pages/MethodsPage')))
 const WorksheetPage = lazy(() => retryImport(() => import('@/pages/WorksheetPage')))
@@ -48,8 +48,9 @@ function Gate() {
           <DialogProvider>
             <Routes>
               <Route element={<AppShell />}>
-                <Route index element={<DashboardPage />} />
-                <Route path="calendar" element={route('Loading calendar', CalendarPage)} />
+                <Route index element={<Navigate to="/calendar" replace />} />
+                <Route path="calendar" element={<CalendarPage />} />
+                <Route path="dashboard" element={route('Loading dashboard', DashboardPage)} />
                 <Route path="assistant" element={route('Waking the assistant', AssistantPage)} />
                 <Route path="methods" element={route('Loading methods', MethodsPage)} />
                 <Route
@@ -57,7 +58,7 @@ function Gate() {
                   element={route('Loading the sheet', WorksheetPage)}
                 />
                 <Route path="analytics" element={route('Crunching your week', AnalyticsPage)} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/calendar" replace />} />
               </Route>
             </Routes>
           </DialogProvider>

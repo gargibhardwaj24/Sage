@@ -42,7 +42,7 @@ export function AppShell() {
 
   useEffect(() => {
     const warm = () => {
-      import('@/pages/CalendarPage')
+      import('@/pages/DashboardPage')
       import('@/pages/AssistantPage')
       import('@/pages/MethodsPage')
       import('@/pages/AnalyticsPage')
