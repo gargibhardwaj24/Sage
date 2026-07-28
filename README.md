@@ -139,7 +139,6 @@ cp .env.example .env
 # VITE_GEMINI_API_KEY=your_key_here
 ```
 
-…or paste one into **Preferences → Gemini assistant**.
 
 ---
 
