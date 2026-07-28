@@ -158,7 +158,7 @@ export function SettingsDialog({ open, onClose }) {
           ) : null}
         </Field>
 
-        <div className="surface-inset rounded-xl p-4">
+        {/* <div className="surface-inset rounded-xl p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-ink">Gemini assistant</p>
@@ -214,7 +214,7 @@ export function SettingsDialog({ open, onClose }) {
               language with rules rather than a model.
             </p>
           )}
-        </div>
+        </div> */}
 
         <AreaManager
           areas={areas}

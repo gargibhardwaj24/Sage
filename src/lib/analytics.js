@@ -145,6 +145,54 @@ export function scoreTrend(events, count = 8, options = {}) {
   })
 }
 
+export function dayScoreTrend(events, options = {}) {
+  const { focusTargetHours = 20, now = new Date() } = options
+  const dailyFocusTarget = Math.max(1, focusTargetHours / 7)
+  const dailyRecoveryTarget = RECOVERY_TARGET_MINUTES / 7
+
+  return weekDays(startOfWeek(now, WEEK_OPTS)).map((day) => {
+    const from = startOfDay(day)
+    const to = endOfDay(day)
+    const isFuture = from > startOfDay(now)
+
+    const inDay = events.filter((e) => {
+      if (e.source === 'holiday') return false
+      const s = toDate(e.start)
+      return s >= from && s <= to
+    })
+
+    const due = inDay.filter((e) => toDate(e.end) <= now)
+    const completed = inDay.filter((e) => e.completed)
+
+    const minutesOf = (list) => list.reduce((n, e) => n + durationMinutes(e.start, e.end), 0)
+    const focusMinutes = minutesOf(completed.filter((e) => isFocusCategory(e.categoryId)))
+    const recoveryMinutes = minutesOf(
+      completed.filter((e) => e.categoryId === 'fitness' || e.categoryId === 'personal')
+    )
+
+    const components = {
+      completion: due.length ? completed.filter((e) => toDate(e.end) <= now).length / due.length : 0,
+      focus: Math.min(1, focusMinutes / 60 / dailyFocusTarget),
+      consistency: completed.length ? 1 : 0,
+      balance: Math.min(1, recoveryMinutes / dailyRecoveryTarget),
+    }
+
+    const score = Math.round(
+      100 * SCORE_WEIGHTS.reduce((sum, w) => sum + w.weight * (components[w.key] ?? 0), 0)
+    )
+
+    return {
+      day,
+      label: day.toLocaleDateString(undefined, { weekday: 'short' }),
+      score: isFuture ? null : score,
+      focusHours: round1(focusMinutes / 60),
+      completed: completed.length,
+      isCurrent: isSameDay(day, now),
+      isFuture,
+    }
+  })
+}
+
 export function streaks(events, now = new Date()) {
   const done = new Set(
     events.filter((e) => e.completed && e.source !== 'holiday').map((e) => dayKey(e.start))

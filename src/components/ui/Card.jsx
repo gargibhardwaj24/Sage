@@ -1,21 +1,21 @@
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/cn'
 
-export function Card({ as: Tag = 'div', className, children, ...props }) {
+export function Card({ as: Tag = 'div', className, surface = true, children, ...props }) {
   return (
-    <Tag className={cn('surface-card rounded-card', className)} {...props}>
+    <Tag className={cn(surface && 'surface-card', 'rounded-card', className)} {...props}>
       {children}
     </Tag>
   )
 }
 
-export function MotionCard({ className, delay = 0, children, ...props }) {
+export function MotionCard({ className, delay = 0, surface = true, children, ...props }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={cn('surface-card rounded-card', className)}
+      className={cn(surface && 'surface-card', 'rounded-card', className)}
       {...props}
     >
       {children}

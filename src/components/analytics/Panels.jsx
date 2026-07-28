@@ -19,7 +19,7 @@ export function EnergyHeatmap({ events, weeks, now, delay = 0 }) {
   const rows = grid.filter((r) => r.hour % 2 === 0)
 
   return (
-    <MotionCard delay={delay} className="p-5 sm:p-6">
+    <MotionCard delay={delay} surface={false} className="p-5 sm:p-6">
       <CardHeader
         icon={Activity}
         title="Energy heatmap"

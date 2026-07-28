@@ -18,7 +18,7 @@ import EmptyState from '@/components/ui/EmptyState'
 import StatTile from '@/components/analytics/StatTile'
 import { EnergyHeatmap, RecentSessions } from '@/components/analytics/Panels'
 import {
-  CategoryDonut,
+  CategoryRadar,
   FocusByHourChart,
   ScoreTrendChart,
   WeeklyLoadChart,
@@ -28,6 +28,7 @@ import { useSettings } from '@/store/SettingsContext'
 import { useToast } from '@/store/ToastContext'
 import { useNow } from '@/hooks/useNow'
 import {
+  dayScoreTrend,
   dominantCategory,
   focusByHour,
   peakFocusHour,
@@ -81,6 +82,7 @@ export function AnalyticsPage() {
       previous,
       delta: stats.score - previous.score,
       trend,
+      dayTrend: dayScoreTrend(events, options),
       streak: streaks(events, now),
       hours: focusByHour(events, { weeks: range, now }),
       peak: peakFocusHour(events, { weeks: range, now }),
@@ -226,15 +228,20 @@ export function AnalyticsPage() {
           </div>
         </MotionCard>
 
-        <MotionCard delay={0.1} className="p-5 sm:p-6">
+        <MotionCard delay={0.1} surface={false} className="p-5 sm:p-6">
           <CardHeader
             icon={TrendingUp}
             title="Flow state velocity"
-            subtitle={`Weekly score against its running average · last ${range} weeks`}
+            subtitle={`Daily score against its running average · week of ${fmtDay(stats.start)}`}
           />
           <div className="mt-4">
-            {data.trend.some((w) => w.score > 0) ? (
-              <ScoreTrendChart data={data.trend} height={260} />
+            {data.dayTrend.some((d) => d.score > 0) ? (
+              <ScoreTrendChart
+                data={data.dayTrend}
+                height={260}
+                seriesLabel="Daily score"
+                labelFormatter={(l) => l}
+              />
             ) : (
               <EmptyState
                 title="No scores to chart yet"
@@ -260,7 +267,7 @@ export function AnalyticsPage() {
           />
           <div className="mt-4">
             {stats.byCategory.length ? (
-              <CategoryDonut data={stats.byCategory} />
+              <CategoryRadar data={stats.byCategory} />
             ) : (
               <EmptyState title="No events this week" description="Nothing scheduled to break down yet." />
             )}
@@ -283,7 +290,7 @@ export function AnalyticsPage() {
         <RecentSessions events={events} now={now} delay={0.22} />
       </div>
 
-      <MotionCard delay={0.25} className="p-5 sm:p-6">
+      <MotionCard delay={0.25} surface={false} className="p-5 sm:p-6">
         <CardHeader
           icon={Sparkles}
           title="When you actually focus"
